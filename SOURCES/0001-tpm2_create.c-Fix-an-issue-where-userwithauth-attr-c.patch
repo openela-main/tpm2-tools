@@ -1,0 +1,186 @@
+From 696a17861c38b38fb2acf888119d918eb9c12329 Mon Sep 17 00:00:00 2001
+From: Imran Desai <imran.desai@intel.com>
+Date: Thu, 21 May 2020 11:31:43 -0700
+Subject: [PATCH] tpm2_create.c: Fix an issue where userwithauth attr cleared
+ if policy specified
+
+Fixes #2037
+
+Signed-off-by: Imran Desai <imran.desai@intel.com>
+---
+ man/tpm2_create.1.md                 |  9 +++-
+ test/integration/tests/import_tpm.sh | 78 +++++++++++++++++-----------
+ tools/tpm2_create.c                  | 10 ++--
+ 3 files changed, 60 insertions(+), 37 deletions(-)
+
+diff --git a/man/tpm2_create.1.md b/man/tpm2_create.1.md
+index e8e5eaac49c3..9a7ba33e6017 100644
+--- a/man/tpm2_create.1.md
++++ b/man/tpm2_create.1.md
+@@ -13,7 +13,7 @@
+ **tpm2_create**(1) - Create a child object. The object can either be a key or
+ a sealing object. A sealing object allows to seal user data to the TPM, with a
+ maximum size of 256 bytes. Additionally it will load the created object if the
+-**-o** is specified.
++**-c** is specified.
+ 
+ # OPTIONS
+ 
+@@ -55,6 +55,13 @@ These options for creating the TPM entity:
+     and unsealing. I.e. one cannot use an object for sealing and cryptography
+     operations.
+ 
++    When **-L** is specified for adding policy based authorization information
++    AND no string password is specified, the  attribute `TPMA_OBJECT_USERWITHAUTH`
++    is cleared unless an explicit choice is made by setting of the attribute
++    with **-a** option. This prevents creation of objects with inadvertant auth
++    model where in user intended to enforce a policy but inadvertantly created
++    an object with empty auth which can be used instead of policy authorization.
++
+   * **-i**, **\--sealing-input**=_FILE_ or _STDIN_:
+ 
+     The data file to be sealed, optional. If file is -, read from stdin.
+diff --git a/test/integration/tests/import_tpm.sh b/test/integration/tests/import_tpm.sh
+index ff48185aba70..3d1e10820844 100755
+--- a/test/integration/tests/import_tpm.sh
++++ b/test/integration/tests/import_tpm.sh
+@@ -54,8 +54,13 @@ load_new_parent() {
+ create_load_duplicatee() {
+     # Create the key we want to duplicate
+     create_policy dpolicy.dat TPM2_CC_Duplicate
+-    tpm2_create -Q -C primary.ctx -g sha256 -G $1 -p foo -r key.prv -u key.pub \
+-    -L dpolicy.dat -a "sensitivedataorigin|decrypt|userwithauth"
++    if [ -z "$2" ];then
++        tpm2_create -Q -C primary.ctx -g sha256 -G $1 -r key.prv \
++        -u key.pub -L dpolicy.dat -a "sensitivedataorigin|decrypt|userwithauth"
++    else
++        tpm2_create -Q -C primary.ctx -g sha256 -G $1 -p "$2" -r key.prv \
++        -u key.pub -L dpolicy.dat -a "sensitivedataorigin|decrypt|userwithauth"
++    fi
+     # Load the key
+     tpm2_load -Q -C primary.ctx -r key.prv -u key.pub -c key.ctx
+     # Extract the public part for import later
+@@ -113,34 +118,45 @@ for dup_key_type in aes rsa ecc; do
+     done
+ done
+ 
+-# Part 2 :
+-# Create a rsa key (Kd)
+-# Encrypt a message using Kd
+-# Duplicate Kd
+-# Import & Load Kd
+-# Decrypt the message and verify
+-tpm2_createprimary -Q -C o -g sha256 -G rsa -c primary.ctx
+-# New parent ...
+-create_load_new_parent
+-# Key to be duplicated
+-create_load_duplicatee rsa
+-# Encrypt a secret message
+-echo "Mary had a little lamb ..." > plain.txt
+-tpm2_rsaencrypt -Q -c key.ctx -o cipher.txt plain.txt
+-# Duplicate the key
+-do_duplication null
+-# Remove, we're done with it
+-rm new_parent.ctx
+-# Load the full thing this time
+-load_new_parent
+-# Import & load the duplicate
+-do_import_load null
+-# Decrypt the secret message using duplicated key
+-tpm2_rsadecrypt -Q -p foo -c dup.ctx -o recovered.txt cipher.txt
+-# Check we got it right ...
+-diff recovered.txt plain.txt
+-# Cleanup
+-rm plain.txt recovered.txt cipher.txt
+-cleanup "no-shut-down"
++test_key_usage() {
++    # Part 2 :
++    # Create a rsa key (Kd)
++    # Encrypt a message using Kd
++    # Duplicate Kd
++    # Import & Load Kd
++    # Decrypt the message and verify
++    tpm2_createprimary -Q -C o -g sha256 -G rsa -c primary.ctx
++    # New parent ...
++    create_load_new_parent
++    # Key to be duplicated
++    create_load_duplicatee rsa "$1"
++    # Encrypt a secret message
++    echo "Mary had a little lamb ..." > plain.txt
++    tpm2_rsaencrypt -Q -c key.ctx -o cipher.txt plain.txt
++    # Duplicate the key
++    do_duplication null
++    # Remove, we're done with it
++    rm new_parent.ctx
++    # Load the full thing this time
++    load_new_parent
++    # Import & load the duplicate
++    do_import_load null
++    # Decrypt the secret message using duplicated key
++    if [ -z "$1" ];then
++        tpm2_rsadecrypt -Q -c dup.ctx -o recovered.txt cipher.txt
++    else
++        tpm2_rsadecrypt -Q -p "$1" -c dup.ctx -o recovered.txt cipher.txt
++    fi
++    # Check we got it right ...
++    diff recovered.txt plain.txt
++    # Cleanup
++    rm plain.txt recovered.txt cipher.txt
++    cleanup "no-shut-down"
++}
++
++#Test key with password
++test_key_usage foo
++#Test key without password
++test_key_usage
+ 
+ exit 0
+diff --git a/tools/tpm2_create.c b/tools/tpm2_create.c
+index 941b77655f55..8e92cc747e17 100644
+--- a/tools/tpm2_create.c
++++ b/tools/tpm2_create.c
+@@ -47,7 +47,7 @@ struct tpm_create_ctx {
+     TPML_PCR_SELECTION creation_pcr;
+ 
+     struct {
+-        UINT8 b :1;
++        UINT8 a :1;
+         UINT8 i :1;
+         UINT8 L :1;
+         UINT8 u :1;
+@@ -224,7 +224,7 @@ static bool on_option(char key, char *value) {
+         break;
+     case 'a':
+         ctx.object.attrs = value;
+-        ctx.flags.b = 1;
++        ctx.flags.a = 1;
+         break;
+     case 'i':
+         ctx.object.sealed_data = strcmp("-", value) ? value : NULL;
+@@ -346,12 +346,12 @@ tool_rc tpm2_tool_onrun(ESYS_CONTEXT *ectx, tpm2_option_flags flags) {
+ 
+         ctx.object.alg = "keyedhash";
+ 
+-        if (!ctx.flags.b) {
++        if (!ctx.flags.a) {
+             attrs &= ~TPMA_OBJECT_SIGN_ENCRYPT;
+             attrs &= ~TPMA_OBJECT_DECRYPT;
+             attrs &= ~TPMA_OBJECT_SENSITIVEDATAORIGIN;
+         }
+-    } else if (!ctx.flags.b && !strncmp("hmac", ctx.object.alg, 4)) {
++    } else if (!ctx.flags.a && !strncmp("hmac", ctx.object.alg, 4)) {
+         attrs &= ~TPMA_OBJECT_DECRYPT;
+     }
+ 
+@@ -362,7 +362,7 @@ tool_rc tpm2_tool_onrun(ESYS_CONTEXT *ectx, tpm2_option_flags flags) {
+         return tool_rc_general_error;
+     }
+ 
+-    if (ctx.flags.L && !ctx.object.auth_str) {
++    if (!ctx.flags.a && ctx.flags.L && !ctx.object.auth_str) {
+         ctx.object.public.publicArea.objectAttributes &=
+                 ~TPMA_OBJECT_USERWITHAUTH;
+     }
+-- 
+2.27.0
+

@@ -1,0 +1,63 @@
+From 77d4592e3eec9ec2c7932586f41f925b43ecc5ba Mon Sep 17 00:00:00 2001
+From: Imran Desai <imran.desai@intel.com>
+Date: Sun, 29 Mar 2020 10:22:42 -0700
+Subject: [PATCH] tools/tpm2_nvcertify.c: Fix incompatible pointer cast that
+ may cause memory leak
+
+Pointer "&ctx.size" and "&ctx.offset" points to an object whose effective type is
+"unsigned short" (16 bits, unsigned) but is dereferenced as a wider
+"unsigned int" (32 bits, unsigned). This may lead to memory corruption.
+
+Signed-off-by: Imran Desai <imran.desai@intel.com>
+---
+ tools/tpm2_nvcertify.c | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/tools/tpm2_nvcertify.c b/tools/tpm2_nvcertify.c
+index b49f38dbff20..414cbea85574 100644
+--- a/tools/tpm2_nvcertify.c
++++ b/tools/tpm2_nvcertify.c
+@@ -80,6 +80,7 @@ static bool set_signature_format(char *value) {
+ static bool on_option(char key, char *value) {
+ 
+     bool result = true;
++    uint32_t input_value;
+ 
+     switch (key) {
+     case 'C':
+@@ -110,18 +111,30 @@ static bool on_option(char key, char *value) {
+         ctx.policy_qualifier_arg = value;
+         break;
+     case 0:
+-        result = tpm2_util_string_to_uint32(value, (uint32_t*)&ctx.size);
++        result = tpm2_util_string_to_uint32(value, &input_value);
+         if (!result) {
+             LOG_ERR("Could not convert size to number, got: \"%s\"", value);
+             return false;
+         }
++        if (input_value > UINT16_MAX) {
++            LOG_ERR("Specified size is larger than that allowed by command");
++            return false;
++        } else {
++            ctx.size = input_value;
++        }
+         break;
+     case 1:
+-        result = tpm2_util_string_to_uint32(value, (uint32_t*)&ctx.offset);
++        result = tpm2_util_string_to_uint32(value, &input_value);
+         if (!result) {
+             LOG_ERR("Could not convert offset to number, got: \"%s\"", value);
+             return false;
+         }
++        if (input_value > UINT16_MAX) {
++            LOG_ERR("Specified offset is larger than that allowed by command");
++            return false;
++        } else {
++            ctx.offset = input_value;
++        }
+         break;
+     case 2:
+         ctx.certify_info_path = value;
+-- 
+2.31.0
+

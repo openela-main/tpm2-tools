@@ -1,0 +1,37 @@
+From 334b4c739fa575fb4ea58f92df6de87c38e59e15 Mon Sep 17 00:00:00 2001
+From: Imran Desai <imran.desai@intel.com>
+Date: Thu, 23 Jan 2020 08:06:56 -0700
+Subject: [PATCH] tpm2_hierarchycontrol: Fixed bug where hierarchycontrol
+ operation failed silently
+
+Fixes #1841
+
+Signed-off-by: Imran Desai <imran.desai@intel.com>
+---
+ tools/tpm2_hierarchycontrol.c | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/tools/tpm2_hierarchycontrol.c b/tools/tpm2_hierarchycontrol.c
+index 0baf2ca487d3..7e9e2c657544 100644
+--- a/tools/tpm2_hierarchycontrol.c
++++ b/tools/tpm2_hierarchycontrol.c
+@@ -32,8 +32,14 @@ static tool_rc hierarchycontrol(ESYS_CONTEXT *ectx) {
+         ctx.enable == TPM2_RH_ENDORSEMENT ? "ehEnable" : "phEnableNV",
+         ctx.state ? "SET" : "CLEAR");
+ 
+-    return tpm2_hierarchycontrol(ectx, &ctx.auth_hierarchy.object, ctx.enable,
+-            ctx.state);
++    tool_rc rc = tpm2_hierarchycontrol(ectx, &ctx.auth_hierarchy.object,
++        ctx.enable, ctx.state);
++
++    if (rc != tool_rc_success) {
++        LOG_ERR("Failed hierarchycontrol operation.");
++    }
++
++    return rc;
+ }
+ 
+ bool on_arg(int argc, char **argv) {
+-- 
+2.27.0
+

@@ -1,0 +1,30 @@
+From cab7b3edcc6a44aece0642c0c2621a4bb70d449b Mon Sep 17 00:00:00 2001
+From: Imran Desai <imran.desai@intel.com>
+Date: Tue, 10 Mar 2020 18:19:04 -0700
+Subject: [PATCH] tpm2_policycountertimer: Fix an issue where operandB array
+ was reversed
+
+Signed-off-by: Imran Desai <imran.desai@intel.com>
+---
+ tools/tpm2_policycountertimer.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/tools/tpm2_policycountertimer.c b/tools/tpm2_policycountertimer.c
+index 1c72d525dab7..170a544f2203 100644
+--- a/tools/tpm2_policycountertimer.c
++++ b/tools/tpm2_policycountertimer.c
+@@ -81,7 +81,10 @@ static bool convert_keyvalue_to_operand_buffer(const char *value,
+     }
+ 
+     ctx.operand_b.size = size;
+-    memcpy(ctx.operand_b.buffer, &data.b, size);
++    size_t i = 0;
++    for (i = 0; i < size; i++) {
++        ctx.operand_b.buffer[i] = *(&data.b + size - i - 1);
++    }
+ 
+     return true;
+ }
+-- 
+2.31.0
+

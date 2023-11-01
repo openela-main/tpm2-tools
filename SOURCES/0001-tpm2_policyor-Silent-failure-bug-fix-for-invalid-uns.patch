@@ -1,0 +1,26 @@
+From 44d0d2d17dc693e029e0557ec985c9b68c3efeb5 Mon Sep 17 00:00:00 2001
+From: Imran Desai <imran.desai@intel.com>
+Date: Wed, 22 Jan 2020 14:15:48 -0700
+Subject: [PATCH] tpm2_policyor: Silent failure bug fix for invalid/unspecified
+ policy digest alg
+
+Signed-off-by: Imran Desai <imran.desai@intel.com>
+---
+ lib/tpm2_policy.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/lib/tpm2_policy.c b/lib/tpm2_policy.c
+index 3d9b5491f9ce..8460bd1d9ae9 100644
+--- a/lib/tpm2_policy.c
++++ b/lib/tpm2_policy.c
+@@ -588,6 +588,7 @@ bool tpm2_policy_parse_policy_list(char *str, TPML_DIGEST *policy_list) {
+                 hash = tpm2_alg_util_from_optarg(subtoken,
+                         tpm2_alg_util_flags_hash);
+                 if (hash == TPM2_ALG_ERROR) {
++                    LOG_ERR("Invalid/ Unspecified policy digest algorithm.");
+                     return false;
+                 }
+             }
+-- 
+2.27.0
+

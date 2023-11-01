@@ -1,0 +1,28 @@
+From e556da0a2099573f82391c16477fba08584a7a12 Mon Sep 17 00:00:00 2001
+From: Imran Desai <imran.desai@intel.com>
+Date: Tue, 10 Mar 2020 09:15:55 -0700
+Subject: [PATCH] tpm2_policy.c: restrict policy digest size
+
+Fixes #1916
+
+Signed-off-by: Imran Desai <imran.desai@intel.com>
+---
+ lib/tpm2_policy.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/lib/tpm2_policy.c b/lib/tpm2_policy.c
+index 6c352b2b41ae..01387ba01645 100644
+--- a/lib/tpm2_policy.c
++++ b/lib/tpm2_policy.c
+@@ -163,7 +163,7 @@ tool_rc tpm2_policy_build_policyauthorize(ESYS_CONTEXT *ectx,
+     bool result = true;
+     TPM2B_DIGEST approved_policy = { .size = 0 };
+     if (policy_digest_path) {
+-        approved_policy.size = UINT16_MAX;
++        approved_policy.size = sizeof(TPMU_HA);
+         result = files_load_bytes_from_path(policy_digest_path,
+             approved_policy.buffer, &approved_policy.size);
+     }
+-- 
+2.31.0
+

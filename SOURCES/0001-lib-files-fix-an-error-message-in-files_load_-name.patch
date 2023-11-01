@@ -1,0 +1,26 @@
+From 012249ad9d06d7534a94690a33638691f5104839 Mon Sep 17 00:00:00 2001
+From: Radoslav Gerganov <rgerganov@vmware.com>
+Date: Wed, 26 Feb 2020 10:40:26 +0200
+Subject: [PATCH] lib/files: fix an error message in files_load_##name
+
+Signed-off-by: Radoslav Gerganov <rgerganov@vmware.com>
+---
+ lib/files.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/lib/files.c b/lib/files.c
+index a6beea5b8ff2..ef2170b079e1 100644
+--- a/lib/files.c
++++ b/lib/files.c
+@@ -687,7 +687,7 @@ tool_rc files_save_ESYS_TR(ESYS_CONTEXT *ectx, ESYS_TR handle, const char *path)
+         size_t offset = 0; \
+         TSS2_RC rc = Tss2_MU_##type##_Unmarshal(buffer, size, &offset, name); \
+         if (rc != TSS2_RC_SUCCESS) { \
+-            LOG_ERR("Error serializing "str(name)" structure: 0x%x", rc); \
++            LOG_ERR("Error deserializing "str(name)" structure: 0x%x", rc); \
+             LOG_ERR("The input file needs to be a valid "xstr(type)" data structure"); \
+             return false; \
+         } \
+-- 
+2.31.0
+
