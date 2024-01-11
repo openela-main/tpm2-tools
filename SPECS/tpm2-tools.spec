@@ -2,7 +2,7 @@
 
 Name:    tpm2-tools
 Version: 5.2
-Release: 2%{?candidate:.%{candidate}}%{?dist}
+Release: 3%{?candidate:.%{candidate}}%{?dist}
 Summary: A bunch of TPM testing toolS build upon tpm2-tss
 
 License: BSD
@@ -20,6 +20,24 @@ Patch8: 0006-test-track-expected-YAML-output-for-eventlog.patch
 Patch9: 0007-tpm2_eventlog_yaml-fix-parsing-for-MokListTrusted.patch
 Patch10: 0008-tests-add-eventlog-for-parsing-MokListTrusted.patch
 Patch11: 0009-tpm2_eventlog_yaml-use-defines-for-Unicode-variables.patch
+Patch101: 0001-Fix-nv_readpublic.patch
+Patch102: 0002-tpm2_encodeobject-New-tool-to-encode-TPM2-object.patch
+Patch103: 0003-tools-tpm2_evictconrol-fix-for-call-to-Esys_TR_Close.patch
+Patch104: 0004-Fix-argument-parsing-in-tpm2_policylocality.patch
+Patch105: 0005-tools-tpm2_tool.c-Fix-an-issue-where-LOG_WARN-is-alw.patch
+Patch106: 0006-import-fix-bug-on-using-scheme.patch
+Patch107: 0007-tpm2_policyor-fix-unallocated-policy-list.patch
+Patch108: 0008-lib-tpm2_alg_util.c-Fix-potential-null-pointer-deref.patch
+Patch109: 0009-tss2_provision-fix-usage-of-L-parameter.patch
+Patch110: 0010-tpm2_encodeobject-fix-formatting.patch
+Patch111: 0011-tpm2_encodeobject-fix-auth-boolean-flag.patch
+Patch112: 0012-bugfix-fix-convert-sm2-public-key-in-openssl3.patch
+Patch113: 0013-readpublic-fix-reading-and-writing-serialized-trs.patch
+Patch114: 0014-fix-wrong-function-name-of-Esys_Load.patch
+Patch115: 0015-tpm-errata-switch-to-twos-complement.patch
+Patch116: 0016-tpm2_eventlog.c-Fix-pcr-extension-for-EV_NO_ACTION.patch
+Patch117: 0017-kdfa.c-Fix-problem-with-FORTIFY_SOURCE-on-Fedora.patch
+Patch118: add_pregenerated_doc.patch
 
 BuildRequires: git
 BuildRequires: make
@@ -71,6 +89,12 @@ autoreconf -i
 %{_mandir}/man1/tss2_*.1.gz
 
 %changelog
+* Wed May 24 2023 Štěpán Horáček <shoracek@redhat.com> - 5.2-3
+- Backport fixes.
+- Add tpm2_encodeobject tool.
+  Resolves: rhbz#2160304
+  Resolves: rhbz#2047342
+
 * Wed Oct 19 2022 Štěpán Horáček <shoracek@redhat.com> - 5.2-2
 - Fix eventlog output.
   Resolves: rhbz#2136215
