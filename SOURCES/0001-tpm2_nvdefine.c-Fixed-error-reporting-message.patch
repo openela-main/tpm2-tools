@@ -1,0 +1,31 @@
+From 652322f7278ec8c384fde9ec2204b06d084a24e4 Mon Sep 17 00:00:00 2001
+From: Imran Desai <imran.desai@intel.com>
+Date: Thu, 23 Jan 2020 07:54:58 -0700
+Subject: [PATCH] tpm2_nvdefine.c: Fixed error reporting message
+
+Fixes #1861
+
+NV define failure error message had the wording to suggest NV index
+was successfully defined.
+
+Signed-off-by: Imran Desai <imran.desai@intel.com>
+---
+ tools/tpm2_nvdefine.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tools/tpm2_nvdefine.c b/tools/tpm2_nvdefine.c
+index cb2949c4dddc..71203cb6c80d 100644
+--- a/tools/tpm2_nvdefine.c
++++ b/tools/tpm2_nvdefine.c
+@@ -65,7 +65,7 @@ static tool_rc nv_space_define(ESYS_CONTEXT *ectx) {
+     tool_rc rc = tpm2_nv_definespace(ectx, &ctx.auth_hierarchy.object,
+             &ctx.nv_auth, &public_info);
+     if (rc != tool_rc_success) {
+-        LOG_INFO("Success to define NV area at index 0x%x.", ctx.nv_index);
++        LOG_ERR("Failed to create NV index 0x%x.", ctx.nv_index);
+         return rc;
+     }
+ 
+-- 
+2.27.0
+

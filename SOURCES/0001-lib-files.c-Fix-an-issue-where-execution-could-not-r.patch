@@ -1,0 +1,42 @@
+From a20415d6f1d3fa09300ff1181646fe7e1785fd15 Mon Sep 17 00:00:00 2001
+From: Imran Desai <imran.desai@intel.com>
+Date: Sun, 29 Mar 2020 10:14:28 -0700
+Subject: [PATCH] lib/files.c: Fix an issue where execution could not reach
+ function return
+
+Signed-off-by: Imran Desai <imran.desai@intel.com>
+---
+ lib/files.c | 8 +++-----
+ 1 file changed, 3 insertions(+), 5 deletions(-)
+
+diff --git a/lib/files.c b/lib/files.c
+index ef2170b079e1..501f88d11b48 100644
+--- a/lib/files.c
++++ b/lib/files.c
+@@ -607,9 +607,7 @@ bool files_load_bytes_from_buffer_or_file_or_stdin(const char *input_buffer,
+         return true;
+     }
+ 
+-//    printf("Reading file: %s\n", path);
+-//    printf("size: %u\n", *size);
+-
++    bool retval = true;
+     /* Read from stdin */
+     if (!input_buffer && !path) {
+         UINT16 read_bytes = 0;
+@@ -640,10 +638,10 @@ bool files_load_bytes_from_buffer_or_file_or_stdin(const char *input_buffer,
+             return true;
+         }
+     } else if (path) {
+-        return files_load_bytes_from_path(path, buf, size);
++        retval = files_load_bytes_from_path(path, buf, size);
+     }
+ 
+-    return false;
++    return retval;
+ }
+ 
+ tool_rc files_save_ESYS_TR(ESYS_CONTEXT *ectx, ESYS_TR handle, const char *path) {
+-- 
+2.31.0
+

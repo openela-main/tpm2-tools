@@ -1,0 +1,49 @@
+From 8c72f7402d8977807f531b08976760d62676cf8a Mon Sep 17 00:00:00 2001
+From: Imran Desai <imran.desai@intel.com>
+Date: Thu, 23 Jan 2020 11:21:58 -0700
+Subject: [PATCH] tpm2_getekcertificate: add default web address
+
+Currently only Intel (R) PTT certificates are hosted online.
+A default web address pointing to the endorsement key certificate
+hosting will help reduce user input.
+
+Signed-off-by: Imran Desai <imran.desai@intel.com>
+---
+ test/integration/tests/getekcertificate.sh | 6 ++----
+ tools/tpm2_getekcertificate.c              | 1 +
+ 2 files changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/test/integration/tests/getekcertificate.sh b/test/integration/tests/getekcertificate.sh
+index 33f4f8b2e4c0..e8c521756d2a 100755
+--- a/test/integration/tests/getekcertificate.sh
++++ b/test/integration/tests/getekcertificate.sh
+@@ -38,12 +38,10 @@ else
+     fi
+ fi
+ 
+-tpm2_getekcertificate -u test_ek.pub -x -X -o ECcert.bin \
+-https://ekop.intel.com/ekcertservice/
++tpm2_getekcertificate -u test_ek.pub -x -X -o ECcert.bin
+ 
+ # Test that stdoutput is the same
+-tpm2_getekcertificate -u test_ek.pub -x https://ekop.intel.com/ekcertservice/ \
+--X > ECcert2.bin
++tpm2_getekcertificate -u test_ek.pub -x -X > ECcert2.bin
+ 
+ # stdout file should match -E file.
+ cmp ECcert.bin ECcert2.bin
+diff --git a/tools/tpm2_getekcertificate.c b/tools/tpm2_getekcertificate.c
+index 233d04d8b3d7..6a8fe894bb1c 100644
+--- a/tools/tpm2_getekcertificate.c
++++ b/tools/tpm2_getekcertificate.c
+@@ -32,6 +32,7 @@ struct tpm_getekcertificate_ctx {
+ 
+ static tpm_getekcertificate_ctx ctx = {
+     .is_tpm2_device_active = true,
++    .ek_server_addr = "https://ekop.intel.com/ekcertservice/",
+ };
+ 
+ static unsigned char *hash_ek_public(void) {
+-- 
+2.31.0
+

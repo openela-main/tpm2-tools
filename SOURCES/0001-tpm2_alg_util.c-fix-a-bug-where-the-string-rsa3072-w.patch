@@ -1,0 +1,28 @@
+From c28932caef2036039901a91cf55eb7ff093c70f5 Mon Sep 17 00:00:00 2001
+From: Imran Desai <imran.desai@intel.com>
+Date: Fri, 24 Jan 2020 15:53:39 -0700
+Subject: [PATCH] tpm2_alg_util.c: fix a bug where the string rsa3072 wasnt
+ being parsed
+
+Signed-off-by: Imran Desai <imran.desai@intel.com>
+---
+ lib/tpm2_alg_util.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/lib/tpm2_alg_util.c b/lib/tpm2_alg_util.c
+index b83c387a05bd..fcad480e0c3d 100644
+--- a/lib/tpm2_alg_util.c
++++ b/lib/tpm2_alg_util.c
+@@ -301,6 +301,9 @@ static alg_parser_rc handle_rsa(const char *ext, TPM2B_PUBLIC *public) {
+     } else if (!strncmp(ext, "4096", 4)) {
+         r->keyBits = 4096;
+         ext += 4;
++    } else if (!strncmp(ext, "3072", 4)) {
++        r->keyBits = 3072;
++        ext += 4;
+     } else {
+         r->keyBits = 2048;
+     }
+-- 
+2.27.0
+
