@@ -1,0 +1,63 @@
+From 5b5dd6263f1f2d41f08abd60134396a12756c5e7 Mon Sep 17 00:00:00 2001
+From: Bill Roberts <bill.c.roberts+gh@gmail.com>
+Date: Sun, 10 Dec 2023 10:26:33 -0600
+Subject: [PATCH 3/6] tpm2_nvread: fix input handling no nv index
+
+Fixes:
+./tools/tpm2 nvread
+WARN: Reading full size of the NV index
+ERROR: object string is empty
+ERROR: Invalid handle authorization.
+ERROR: Unable to run nvread
+
+with:
+./tools/tpm2 nvread
+ERROR: Must specify NV index argument
+Usage: nvread [<options>] <arguments>
+Where <options> are:
+    [ -C | --hierarchy=<value>] [ -o | --output=<value>] [ -s | --size=<value>] [ --offset=<value>]
+    [ --cphash=<value>] [ --rphash=<value>] [ -n | --name=<value>] [ -P | --auth=<value>]
+    [ -S | --session=<value>] [ --print-yaml]
+
+Signed-off-by: Bill Roberts <bill.c.roberts+gh@gmail.com>
+---
+ tools/tpm2_nvread.c | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/tools/tpm2_nvread.c b/tools/tpm2_nvread.c
+index f64d00c1..8f9c61cc 100644
+--- a/tools/tpm2_nvread.c
++++ b/tools/tpm2_nvread.c
+@@ -24,6 +24,7 @@ struct tpm_nvread_ctx {
+     TPM2B_NAME precalc_nvname;
+     UINT32 size_to_read;
+     UINT32 offset;
++    bool nv_specified;
+ 
+     /*
+      * Outputs
+@@ -192,6 +193,11 @@ static tool_rc check_options(tpm2_option_flags flags) {
+         return tool_rc_option_error;
+     }
+ 
++    if(!ctx.nv_specified) {
++        LOG_ERR("Must specify NV index argument");
++        return tool_rc_option_error;
++    }
++
+     /*
+      * Peculiar to this and some other tools, the object (nvindex) name must
+      * be specified when only calculating the cpHash.
+@@ -266,7 +272,8 @@ static bool on_arg(int argc, char **argv) {
+     if (!ctx.auth_hierarchy.ctx_path) {
+         ctx.auth_hierarchy.ctx_path = argv[0];
+     }
+-    return on_arg_nv_index(argc, argv, &ctx.nv_index);
++
++    return ctx.nv_specified = on_arg_nv_index(argc, argv, &ctx.nv_index);
+ }
+ 
+ static bool on_option(char key, char *value) {
+-- 
+2.45.2
+

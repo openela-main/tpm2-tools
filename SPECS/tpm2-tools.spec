@@ -2,7 +2,7 @@
 
 Name:    tpm2-tools
 Version: 5.2
-Release: 3%{?candidate:.%{candidate}}%{?dist}
+Release: 4%{?candidate:.%{candidate}}%{?dist}
 Summary: A bunch of TPM testing toolS build upon tpm2-tss
 
 License: BSD
@@ -38,6 +38,12 @@ Patch115: 0015-tpm-errata-switch-to-twos-complement.patch
 Patch116: 0016-tpm2_eventlog.c-Fix-pcr-extension-for-EV_NO_ACTION.patch
 Patch117: 0017-kdfa.c-Fix-problem-with-FORTIFY_SOURCE-on-Fedora.patch
 Patch118: add_pregenerated_doc.patch
+Patch201: 0001-tpm2_sessionconfig-fix-usage-of-disable-continuesess.patch
+Patch202: 0002-tpm2_tool.c-Fix-missing-include-for-basename.patch
+Patch203: 0003-tpm2_nvread-fix-input-handling-no-nv-index.patch
+Patch204: 0004-tpm2_checkquote-Add-comparison-of-pcr-selection.patch
+Patch205: 0005-tpm2_checkquote-Fix-check-of-magic-number.patch
+Patch206: 0006-tpm2_setprimarypolicy-Fix-resource-leak.patch
 
 BuildRequires: git
 BuildRequires: make
@@ -89,6 +95,15 @@ autoreconf -i
 %{_mandir}/man1/tss2_*.1.gz
 
 %changelog
+* Wed Jun 19 2024 Štěpán Horáček <shoracek@redhat.com> - 5.2-4
+- Backport upstream fixes.
+- tpm2_checkquote: Fix check of magic number. (CVE-2024-29038)
+- tpm2_checkquote: Add comparison of pcr selection. (CVE-2024-29039)
+- Fix check of magic number.
+  Resolves: RHEL-23198
+  Resolves: RHEL-41031
+  Resolves: RHEL-41035
+
 * Wed May 24 2023 Štěpán Horáček <shoracek@redhat.com> - 5.2-3
 - Backport fixes.
 - Add tpm2_encodeobject tool.

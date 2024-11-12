@@ -1,0 +1,131 @@
+From c2dff7cfac16a857fcd5161d6e171483221ab003 Mon Sep 17 00:00:00 2001
+From: Juergen Repp <juergen_repp@web.de>
+Date: Sun, 17 Dec 2023 09:53:01 +0100
+Subject: [PATCH 1/6] tpm2_sessionconfig fix usage of --disable-continuesession
+
+Conflicts: context change due to missing 6169d8c22
+
+If continue session was disabled a error did occur in the function for
+restoring the session context.
+Now after usage of an session with continue session disabled the
+context will not be saved and the session context file will be
+deleted.
+In one integration test continue session is now disabled and the
+flush for this session is removed.
+
+Fixes: #3295
+
+Signed-off-by: Juergen Repp <juergen_repp@web.de>
+---
+ lib/tpm2_session.c               | 45 +++++++++++++++++++++++---------
+ test/integration/tests/unseal.sh |  7 +++--
+ 2 files changed, 37 insertions(+), 15 deletions(-)
+
+diff --git a/lib/tpm2_session.c b/lib/tpm2_session.c
+index 60b8643b..3e5503db 100644
+--- a/lib/tpm2_session.c
++++ b/lib/tpm2_session.c
+@@ -35,6 +35,7 @@ struct tpm2_session {
+         char *path;
+         ESYS_CONTEXT *ectx;
+         bool is_final;
++        bool delete;
+     } internal;
+ };
+ 
+@@ -290,18 +291,23 @@ tool_rc tpm2_session_restore(ESYS_CONTEXT *ctx, const char *path, bool is_final,
+     dup_path = NULL;
+ 
+     TPMA_SESSION attrs = 0;
++    s->internal.delete = false;
++    s->internal.is_final = is_final;
++    *session = s;
+ 
+     if (ctx) {
+-
+         /* hack this in here, should be done when starting the session */
+         tmp_rc = tpm2_sess_get_attributes(ctx, handle, &attrs);
+-        UNUSED(tmp_rc);
++        if (tmp_rc != tool_rc_success) {
++            rc = tmp_rc;
++            LOG_ERR("Can't get session attributes.");
++            goto out;
++        }
++        if ((attrs & TPMA_SESSION_CONTINUESESSION) == 0) {
++            s->internal.delete = true;
++        }
+     }
+ 
+-    s->internal.is_final = is_final;
+-
+-    *session = s;
+-
+     LOG_INFO("Restored session: ESYS_TR(0x%x) attrs(0x%x)", handle, attrs);
+ 
+     rc = tool_rc_success;
+@@ -341,22 +347,35 @@ tool_rc tpm2_session_close(tpm2_session **s) {
+     }
+ 
+     const char *path = session->internal.path;
+-    FILE *session_file = path ? fopen(path, "w+b") : NULL;
+-    if (path && !session_file) {
+-        LOG_ERR("Could not open path \"%s\", due to error: \"%s\"", path,
+-                strerror(errno));
+-        rc = tool_rc_general_error;
+-        goto out;
+-    }
+ 
+     bool flush = path ? session->internal.is_final : true;
+     if (flush) {
+         rc = tpm2_flush_context(session->internal.ectx,
+                 session->output.session_handle);
+         /* done, use rc to indicate status */
++        goto out2;
++    }
++
++    if ((*s)->internal.delete && path) {
++        if (remove(path)) {
++            LOG_ERR("File \"%s\" can't be deleted.", path);
++            rc = tool_rc_general_error;
++            goto out2;
++        } else {
++            rc = tool_rc_success;
++            goto out2;
++        }
++    }
++
++    FILE *session_file = path ? fopen(path, "w+b") : NULL;
++    if (path && !session_file) {
++        LOG_ERR("Could not open path \"%s\", due to error: \"%s\"", path,
++                strerror(errno));
++        rc = tool_rc_general_error;
+         goto out;
+     }
+ 
++
+     /*
+      * Now write the session_type, handle and auth hash data to disk
+      */
+diff --git a/test/integration/tests/unseal.sh b/test/integration/tests/unseal.sh
+index dd6c2bc6..d0f7104f 100644
+--- a/test/integration/tests/unseal.sh
++++ b/test/integration/tests/unseal.sh
+@@ -152,10 +152,13 @@ tpm2 sessionconfig enc_session.ctx --disable-encrypt
+ tpm2 create -Q -C prim.ctx -u seal_key.pub -r seal_key.priv -c seal_key.ctx \
+ -p sealkeypass -i- <<< $secret -S enc_session.ctx
+ 
+-tpm2 sessionconfig enc_session.ctx --enable-encrypt
++tpm2 sessionconfig enc_session.ctx --enable-encrypt --disable-continuesession
+ unsealed=`tpm2 unseal -c seal_key.ctx -p sealkeypass -S enc_session.ctx`
+ test "$unsealed" == "$secret"
+ 
+-tpm2 flushcontext enc_session.ctx
++if [ -e enc_session.ctx ]; then
++    echo "enc_session.ctx was not deleted.";
++    exit 1
++fi
+ 
+ exit 0
+-- 
+2.45.2
+

@@ -1,0 +1,28 @@
+From 2e4d5da9a5e8808b1b075e0bde11c13fdd4c60b3 Mon Sep 17 00:00:00 2001
+From: Juergen Repp <juergen_repp@web.de>
+Date: Tue, 19 Dec 2023 17:24:26 +0100
+Subject: [PATCH 2/6] tpm2_tool.c Fix missing include for basename.
+
+tpm2_tool.c did not compile without the include libgen.h on netbsd.
+Fixes: #3321
+
+Signed-off-by: Juergen Repp <juergen_repp@web.de>
+---
+ tools/tpm2_tool.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/tools/tpm2_tool.c b/tools/tpm2_tool.c
+index edd04c83..f59e316a 100644
+--- a/tools/tpm2_tool.c
++++ b/tools/tpm2_tool.c
+@@ -3,6 +3,7 @@
+ #include <stdbool.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include <libgen.h>
+ 
+ #include <openssl/err.h>
+ #include <openssl/evp.h>
+-- 
+2.45.2
+
