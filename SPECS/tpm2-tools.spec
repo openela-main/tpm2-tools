@@ -2,7 +2,7 @@
 
 Name:    tpm2-tools
 Version: 5.2
-Release: 4%{?candidate:.%{candidate}}%{?dist}
+Release: 6%{?candidate:.%{candidate}}%{?dist}
 Summary: A bunch of TPM testing toolS build upon tpm2-tss
 
 License: BSD
@@ -44,6 +44,16 @@ Patch203: 0003-tpm2_nvread-fix-input-handling-no-nv-index.patch
 Patch204: 0004-tpm2_checkquote-Add-comparison-of-pcr-selection.patch
 Patch205: 0005-tpm2_checkquote-Fix-check-of-magic-number.patch
 Patch206: 0006-tpm2_setprimarypolicy-Fix-resource-leak.patch
+# tpm2_eventlog: add support for replay with different StartupLocality
+Patch207: %{url}/commit/576a31bcc910da517067b29667f45fbe78e812e0.patch
+Patch301: 0001-Fix-handling-of-testResult-in-tpm2_gettestresult.patch
+Patch302: 0002-tpm2_evictcontrol.c-Fix-segfault-for-output-of-handl.patch
+Patch303: 0003-Fix-calloc-argument-order.patch
+Patch304: 0004-tpm2_createpolicy-flush-session-for-trial-policy.patch
+Patch305: 0005-Support-high-range-NV-indexes-in-getekcert.patch
+Patch306: 0006-tpm2_getrandom-Fix-force-parameter.patch
+Patch307: 0007-tpm2_eventlog_yaml.c-Fix-output-of-BlobDescription.patch
+Patch308: 0008-tpm2_encode-Fix-setting-emptyAuth-in-generated-pem-f.patch
 
 BuildRequires: git
 BuildRequires: make
@@ -95,6 +105,14 @@ autoreconf -i
 %{_mandir}/man1/tss2_*.1.gz
 
 %changelog
+* Wed Apr 24 2025 Štěpán Horáček <shoracek@redhat.com> - 5.2-6
+- Backport upstream fixes.
+  Resolves: RHEL-72772
+
+* Fri Mar 21 2025 Davide Cavalca <dcavalca@centosproject.org> - 5.2-5
+- Backport upstream bugfix for tpm2_eventlog
+  Resolves: RHEL-83453
+
 * Wed Jun 19 2024 Štěpán Horáček <shoracek@redhat.com> - 5.2-4
 - Backport upstream fixes.
 - tpm2_checkquote: Fix check of magic number. (CVE-2024-29038)

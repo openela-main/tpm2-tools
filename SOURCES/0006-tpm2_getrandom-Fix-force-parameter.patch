@@ -1,0 +1,29 @@
+From 97960847562fb6350f4b8a8807f169ce37ea2864 Mon Sep 17 00:00:00 2001
+From: Juergen Repp <juergen_repp@web.de>
+Date: Thu, 16 Jan 2025 11:15:56 +0100
+Subject: [PATCH 6/8] tpm2_getrandom: Fix --force parameter
+
+The --force parameter did require an argument but was always set
+to true if used. Now no_argument is used in the option table.
+
+Signed-off-by: Juergen Repp <juergen_repp@web.de>
+---
+ tools/tpm2_getrandom.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tools/tpm2_getrandom.c b/tools/tpm2_getrandom.c
+index edfc0068..f4b064d9 100644
+--- a/tools/tpm2_getrandom.c
++++ b/tools/tpm2_getrandom.c
+@@ -323,7 +323,7 @@ static bool tpm2_tool_onstart(tpm2_options **opts) {
+ 
+     const struct option topts[] = {
+         { "output",       required_argument, NULL, 'o' },
+-        { "force",        required_argument, NULL, 'f' },
++        { "force",        no_argument,       NULL, 'f' },
+         { "hex",          no_argument,       NULL,  0  },
+         { "session",      required_argument, NULL, 'S' },
+         { "cphash",       required_argument, NULL,  1  },
+-- 
+2.49.0
+

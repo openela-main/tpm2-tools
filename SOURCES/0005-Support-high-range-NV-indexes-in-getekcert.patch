@@ -1,0 +1,275 @@
+From a7468cf7deaf5cf608da32923b5797cdb497cde1 Mon Sep 17 00:00:00 2001
+From: "loic.sikidi" <loic.sikidi@s3ns.io>
+Date: Mon, 9 Dec 2024 23:47:25 +0100
+Subject: [PATCH 5/8] Support high range NV indexes in getekcert
+
+Signed-off-by: loic.sikidi <loic.sikidi@gmail.com>
+---
+ test/integration/tests/getekcertificate.sh |  38 ++++++
+ tools/tpm2_getekcertificate.c              | 141 +++++++++++++++++++--
+ 2 files changed, 168 insertions(+), 11 deletions(-)
+
+diff --git a/test/integration/tests/getekcertificate.sh b/test/integration/tests/getekcertificate.sh
+index 96e92cc0..14c32c2d 100644
+--- a/test/integration/tests/getekcertificate.sh
++++ b/test/integration/tests/getekcertificate.sh
+@@ -80,6 +80,8 @@ diff test_ecc_ek.pem test_ek.pem
+ # Retrieve EK certificates from NV indices
+ RSA_EK_CERT_NV_INDEX=0x01C00002
+ ECC_EK_CERT_NV_INDEX=0x01C0000A
++RSA_3072_EK_CERT_NV_INDEX=0x01C0001C
++ECC_NIST_P384_EK_CERT_NV_INDEX=0x01C00016
+ 
+ define_ek_cert_nv_index() {
+     file_size=`ls -l $1 | awk {'print $5'}`
+@@ -120,4 +122,40 @@ tpm2 getekcertificate -o nv_rsa_ek_cert.der -o nv_ecc_ek_cert.der
+ diff nv_rsa_ek_cert.der rsa_ek_cert.der
+ diff nv_ecc_ek_cert.der ecc_ek_cert.der
+ 
++rm nv_rsa_ek_cert.der rsa_ek_cert.der nv_ecc_ek_cert.der ecc_ek_cert.der -f
++
++## RSA & ECC self-signed EK certs stored in high range NV indexes
++tpm2 nvundefine -C p $RSA_EK_CERT_NV_INDEX
++tpm2 nvundefine -C p $ECC_EK_CERT_NV_INDEX
++
++create_self_signed_ek_cert(){
++    case "$1" in
++        *rsa_3072)
++            openssl genpkey -algorithm RSA -out priv_key.pem \
++            -pkeyopt rsa_keygen_bits:3072 > /dev/null 2>&1
++            openssl req -new -key priv_key.pem -x509 -days 1 \
++            -subj "/" -outform DER -out $2
++        ;;
++        *ecc_nist_p384)
++            openssl ecparam -name secp384r1 -genkey -out priv_key.pem > /dev/null 2>&1
++            openssl req -new -key priv_key.pem -x509 -days 1 \
++            -subj "/" -outform DER -out $2
++        ;;
++        *) echo "Unsupported key type $1"; return 1;;
++    esac
++}
++
++create_self_signed_ek_cert rsa_3072 rsa_ek_cert.der
++create_self_signed_ek_cert ecc_nist_p384 ecc_ek_cert.der
++
++define_ek_cert_nv_index rsa_ek_cert.der $RSA_3072_EK_CERT_NV_INDEX
++define_ek_cert_nv_index ecc_ek_cert.der $ECC_NIST_P384_EK_CERT_NV_INDEX
++
++tpm2 getekcertificate -o nv_rsa_ek_cert.der -o nv_ecc_ek_cert.der
++
++diff nv_rsa_ek_cert.der rsa_ek_cert.der
++diff nv_ecc_ek_cert.der ecc_ek_cert.der
++
++rm nv_rsa_ek_cert.der rsa_ek_cert.der nv_ecc_ek_cert.der ecc_ek_cert.der priv_key.pem -f
++
+ exit 0
+diff --git a/tools/tpm2_getekcertificate.c b/tools/tpm2_getekcertificate.c
+index f0d1ca36..3c9bddeb 100644
+--- a/tools/tpm2_getekcertificate.c
++++ b/tools/tpm2_getekcertificate.c
+@@ -20,6 +20,71 @@
+ #include "tpm2_nv_util.h"
+ #include "tpm2_tool.h"
+ 
++
++/*
++ * Sourced from TCG Vendor ID Registry v1.06:
++ * https://trustedcomputinggroup.org/resource/vendor-id-registry/
++ *
++ */
++
++typedef enum tpm_manufacturer tpm_manufacturer;
++enum tpm_manufacturer {
++    VENDOR_AMD       = 0x414D4400,
++    VENDOR_ATMEL     = 0x41544D4C,
++    VENDOR_BROADCOM  = 0x4252434D,
++    VENDOR_CISCO     = 0x4353434F,
++    VENDOR_FLYSLICE  = 0x464C5953,
++    VENDOR_ROCKCHIP  = 0x524F4343,
++    VENDOR_GOOGLE    = 0x474F4F47,
++    VENDOR_HPE       = 0x48504500,
++    VENDOR_HUAWEI    = 0x48495349,
++    VENDOR_IBM       = 0x49424D00,
++    VENDOR_IBMSIM    = 0x49424D20, // Used only by mssim/ibmswtpm2
++    VENDOR_INFINEON  = 0x49465800,
++    VENDOR_INTEL     = 0x494E5443,
++    VENDOR_LENOVO    = 0x4C454E00,
++    VENDOR_MICROSOFT = 0x4D534654,
++    VENDOR_NSM       = 0x4E534D20,
++    VENDOR_NATIONZ   = 0x4E545A00,
++    VENDOR_NUVOTON   = 0x4E544300,
++    VENDOR_QUALCOMM  = 0x51434F4D,
++    VENDOR_SAMSUNG   = 0x534D534E,
++    VENDOR_SINOSUN   = 0x534E5300,
++    VENDOR_SMSC      = 0x534D5343,
++    VENDOR_STM       = 0x53544D20,
++    VENDOR_TXN       = 0x54584E00,
++    VENDOR_WINBOND   = 0x57454300,
++};
++
++typedef enum pubkey_enc_mode pubkey_enc_mode;
++enum pubkey_enc_mode {
++    ENC_AUTO = 0,
++    ENC_INTEL = 1,
++    ENC_AMD = 2,
++};
++
++/*
++ * Sourced from TCG PC Client Platform TPM Profile Specification v1.05 rev 14:
++ * https://trustedcomputinggroup.org/resource/pc-client-platform-tpm-profile-ptp-specification/
++ *
++ */
++
++typedef enum ek_nv_index ek_nv_index;
++enum ek_nv_index {
++    RSA_EK_CERT_NV_INDEX = 0x01C00002,
++    ECC_EK_CERT_NV_INDEX = 0x01C0000A,
++    RSA_2048_EK_CERT_NV_INDEX = 0x01C00012,
++    RSA_3072_EK_CERT_NV_INDEX = 0x01C0001C,
++    RSA_4096_EK_CERT_NV_INDEX = 0x01C0001E,
++    ECC_NIST_P256_EK_CERT_NV_INDEX = 0x01C00014,
++    ECC_NIST_P384_EK_CERT_NV_INDEX = 0x01C00016,
++    ECC_NIST_P521_EK_CERT_NV_INDEX = 0x01C00018,
++    ECC_SM2_P256_EK_CERT_NV_INDEX = 0x01C0001A,
++};
++
++#define EK_SERVER_INTEL "https://ekop.intel.com/ekcertservice/"
++#define EK_SERVER_AMD "https://ftpm.amd.com/pki/aia/"
++
+ typedef struct tpm_getekcertificate_ctx tpm_getekcertificate_ctx;
+ struct tpm_getekcertificate_ctx {
+     // TPM Device properties
+@@ -28,6 +93,8 @@ struct tpm_getekcertificate_ctx {
+     bool is_intc_cert;
+     bool is_rsa_ek_cert_nv_location_defined;
+     bool is_ecc_ek_cert_nv_location_defined;
++    ek_nv_index rsa_ek_cert_nv_location;
++    ek_nv_index ecc_ek_cert_nv_location;
+     bool is_tpmgeneratedeps;
+     // Certficate data handling
+     uint8_t cert_count;
+@@ -55,6 +122,46 @@ static tpm_getekcertificate_ctx ctx = {
+     .cert_count = 0,
+ };
+ 
++
++typedef enum key_type key_type;
++enum key_type {
++    KTYPE_RSA = 0,
++    KTYPE_ECC = 1,
++};
++
++typedef struct ek_index_map ek_index_map;
++struct ek_index_map
++{
++  const char *name;
++  key_type key_type;
++  ek_nv_index index;
++  TPMI_ALG_HASH hash_alg;
++};
++
++static ek_index_map ek_index_maps[] = {
++    {"rsa", KTYPE_RSA, RSA_EK_CERT_NV_INDEX, TPM2_ALG_SHA256},
++    {"rsa2048", KTYPE_RSA, RSA_2048_EK_CERT_NV_INDEX, TPM2_ALG_SHA256},
++    {"rsa3072", KTYPE_RSA, RSA_3072_EK_CERT_NV_INDEX, TPM2_ALG_SHA384},
++    {"rsa4096", KTYPE_RSA, RSA_4096_EK_CERT_NV_INDEX, TPM2_ALG_SHA512},
++    {"ecc", KTYPE_ECC, ECC_EK_CERT_NV_INDEX, TPM2_ALG_SHA256},
++    {"ecc_nist_p256", KTYPE_ECC, ECC_NIST_P256_EK_CERT_NV_INDEX, TPM2_ALG_SHA256},
++    {"ecc_nist_p384", KTYPE_ECC, ECC_NIST_P384_EK_CERT_NV_INDEX, TPM2_ALG_SHA384},
++    {"ecc_nist_p521", KTYPE_ECC, ECC_NIST_P521_EK_CERT_NV_INDEX, TPM2_ALG_SHA512},
++    {"ecc_sm2_p256", KTYPE_ECC, ECC_SM2_P256_EK_CERT_NV_INDEX, TPM2_ALG_SM3_256},
++};
++
++static const ek_index_map *lookup_ek_index_map(const TPMI_RH_NV_INDEX index) {
++    size_t i;
++
++    for (i = 0; i < ARRAY_LEN(ek_index_maps); i++)
++    {
++        if (index == ek_index_maps[i].index) {
++            return &ek_index_maps[i];
++        }
++    }
++    return NULL;
++}
++
+ static unsigned char *hash_ek_public(void) {
+ 
+     unsigned char *hash = (unsigned char*) malloc(SHA256_DIGEST_LENGTH);
+@@ -387,11 +494,20 @@ tool_rc get_tpm_properties(ESYS_CONTEXT *ectx) {
+     UINT32 i;
+     for (i = 0; i < capability_data->data.handles.count; i++) {
+         TPMI_RH_NV_INDEX index = capability_data->data.handles.handle[i];
+-        if (index == RSA_EK_CERT_NV_INDEX) {
++        const ek_index_map *m = lookup_ek_index_map(index);
++        if (!m) {
++            continue;
++        }
++
++        if (m->key_type == KTYPE_RSA) {
++            LOG_INFO("Found pre-provisioned RSA EK certificate at %u [type=%s]", index, m->name);
+             ctx.is_rsa_ek_cert_nv_location_defined = true;
++            ctx.rsa_ek_cert_nv_location = m->index;
+         }
+-        if (index == ECC_EK_CERT_NV_INDEX) {
++        if (m->key_type == KTYPE_ECC) {
++            LOG_INFO("Found pre-provisioned ECC EK certificate at %u [type=%s]", index, m->name);
+             ctx.is_ecc_ek_cert_nv_location_defined = true;
++            ctx.ecc_ek_cert_nv_location = m->index;
+         }
+     }
+ 
+@@ -412,12 +528,15 @@ static tool_rc nv_read(ESYS_CONTEXT *ectx, TPMI_RH_NV_INDEX nv_index) {
+      * with attributes:
+      * ppwrite|ppread|ownerread|authread|no_da|written|platformcreate
+      */
+-    char index_string[11];
+-    if (nv_index == RSA_EK_CERT_NV_INDEX) {
+-        strcpy(index_string, "0x01C00002");
+-    } else {
+-        strcpy(index_string, "0x01C0000A");
++    const ek_index_map *m = lookup_ek_index_map(nv_index);
++    if (!m) {
++        LOG_ERR("Unsupported NV INDEX, got \"%u\"", nv_index);
++        return tool_rc_unsupported;
+     }
++
++    const bool is_rsa = m->key_type == KTYPE_RSA;
++    char index_string[11];
++    snprintf(index_string, sizeof(index_string), "%u", m->index);
+     tpm2_loaded_object object;
+     tool_rc tmp_rc = tool_rc_success;
+     tool_rc rc = tpm2_util_object_load_auth(ectx, index_string, NULL, &object,
+@@ -431,11 +550,11 @@ static tool_rc nv_read(ESYS_CONTEXT *ectx, TPMI_RH_NV_INDEX nv_index) {
+     rc = nv_index == RSA_EK_CERT_NV_INDEX ?
+ 
+          tpm2_util_nv_read(ectx, nv_index, 0, 0, &object, &ctx.rsa_cert_buffer,
+-            &ctx.rsa_cert_buffer_size, &cp_hash, &rp_hash, TPM2_ALG_SHA256, 0,
++            &ctx.rsa_cert_buffer_size, &cp_hash, &rp_hash, m->hash_alg, 0,
+             ESYS_TR_NONE, ESYS_TR_NONE) :
+ 
+          tpm2_util_nv_read(ectx, nv_index, 0, 0, &object, &ctx.ecc_cert_buffer,
+-            &ctx.ecc_cert_buffer_size, &cp_hash, &rp_hash, TPM2_ALG_SHA256, 0,
++            &ctx.ecc_cert_buffer_size, &cp_hash, &rp_hash, m->hash_alg, 0,
+             ESYS_TR_NONE, ESYS_TR_NONE);
+ 
+ nv_read_out:
+@@ -475,14 +594,14 @@ static tool_rc get_nv_ek_certificate(ESYS_CONTEXT *ectx) {
+ 
+     tool_rc rc = tool_rc_success;
+     if (ctx.is_rsa_ek_cert_nv_location_defined) {
+-        rc = nv_read(ectx, RSA_EK_CERT_NV_INDEX);
++        rc = nv_read(ectx, ctx.rsa_ek_cert_nv_location);
+         if (rc != tool_rc_success) {
+             return rc;
+         }
+     }
+ 
+     if (ctx.is_ecc_ek_cert_nv_location_defined) {
+-        rc = nv_read(ectx, ECC_EK_CERT_NV_INDEX);
++        rc = nv_read(ectx, ctx.ecc_ek_cert_nv_location);
+     }
+ 
+     return rc;
+-- 
+2.49.0
+
