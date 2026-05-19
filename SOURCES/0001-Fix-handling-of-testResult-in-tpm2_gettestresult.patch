@@ -1,0 +1,26 @@
+From b45f481a06a118802eaeac0b5b7fcc7dcb5879be Mon Sep 17 00:00:00 2001
+From: "wenxin.leong" <wenxin.leong@infineon.com>
+Date: Wed, 15 May 2024 18:58:21 -0700
+Subject: [PATCH 01/18] Fix handling of testResult in tpm2_gettestresult
+
+Signed-off-by: wenxin.leong <wenxin.leong@infineon.com>
+---
+ tools/tpm2_gettestresult.c | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/tools/tpm2_gettestresult.c b/tools/tpm2_gettestresult.c
+index 24a5caf6..29f913a3 100644
+--- a/tools/tpm2_gettestresult.c
++++ b/tools/tpm2_gettestresult.c
+@@ -35,8 +35,6 @@ static tool_rc tpm2_tool_onrun(ESYS_CONTEXT *ectx, tpm2_option_flags flags) {
+     tpm2_tool_output("status: ");
+     print_yaml_indent(1);
+ 
+-    status &= TPM2_RC_TESTING;
+-
+     switch (status) {
+     case TPM2_RC_SUCCESS:
+         tpm2_tool_output("success");
+-- 
+2.49.0
+

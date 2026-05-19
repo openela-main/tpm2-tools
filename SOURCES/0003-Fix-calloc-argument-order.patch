@@ -1,0 +1,35 @@
+From feadaa9a8f11bda19d792178a052928c1040b47a Mon Sep 17 00:00:00 2001
+From: dzil123 <5725958+dzil123@users.noreply.github.com>
+Date: Tue, 4 Jun 2024 22:33:02 -0700
+Subject: [PATCH 03/18] Fix calloc argument order
+
+Signed-off-by: dzil123 <5725958+dzil123@users.noreply.github.com>
+---
+ lib/tpm2_openssl.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/lib/tpm2_openssl.c b/lib/tpm2_openssl.c
+index 516d8b63..d2f07a7c 100644
+--- a/lib/tpm2_openssl.c
++++ b/lib/tpm2_openssl.c
+@@ -430,7 +430,7 @@ static bool do_open_file(FILE *f, const char *path, char **pass) {
+         goto out;
+     }
+ 
+-    char *tmp = calloc(sizeof(char), file_size + 1);
++    char *tmp = calloc(file_size + 1, sizeof(char));
+     if (!tmp) {
+         LOG_ERR("oom");
+         goto out;
+@@ -485,7 +485,7 @@ static bool do_stdin(const char *passin, char **pass) {
+ 
+     UNUSED(passin);
+ 
+-    void *buf = calloc(sizeof(BYTE), UINT16_MAX + 1);
++    void *buf = calloc(UINT16_MAX + 1, sizeof(BYTE));
+     if (!buf) {
+         LOG_ERR("oom");
+         return false;
+-- 
+2.49.0
+

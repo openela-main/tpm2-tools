@@ -2,7 +2,7 @@
 
 Name:    tpm2-tools
 Version: 5.7
-Release: 4%{?candidate:.%{candidate}}%{?dist}
+Release: 5%{?candidate:.%{candidate}}%{?dist}
 Summary: A bunch of TPM testing toolS build upon tpm2-tss
 
 License: BSD-3-Clause
@@ -24,6 +24,28 @@ BuildRequires: pkgconfig(tss2-mu) >= 3.1.0
 BuildRequires: pkgconfig(tss2-sys) >= 3.1.0
 BuildRequires: pkgconfig(tss2-esys) >= 3.1.0
 BuildRequires: pkgconfig(uuid)
+Patch0001: 0001-Fix-handling-of-testResult-in-tpm2_gettestresult.patch
+Patch0002: 0002-tpm2_evictcontrol.c-Fix-segfault-for-output-of-handl.patch
+Patch0003: 0003-Fix-calloc-argument-order.patch
+Patch0005: 0005-tpm2_policynv.md-Fix-examples.patch
+Patch0006: 0006-tpm2_createpolicy-flush-session-for-trial-policy.patch
+Patch0008: 0008-Support-high-range-NV-indexes-in-getekcert.patch
+Patch0009: 0009-fix-impl-to-prioritize-low-range-certificate.patch
+Patch0010: 0010-fix-getekcertificate.sh-regression.patch
+Patch0011: 0011-tpm2_getrandom-Fix-force-parameter.patch
+Patch0012: 0012-tpm2_eventlog_yaml.c-Fix-output-of-BlobDescription.patch
+Patch0013: 0013-tpm2_encode-Fix-setting-emptyAuth-in-generated-pem-f.patch
+Patch0014: 0014-man-tpm2_getcap-don-t-mention-non-existing-c-flag.patch
+Patch0015: 0015-tpm2_eventlog-Fix-pretty-print-for-efivar-39.patch
+Patch0016: 0016-tools-Add-check-whether-fopen-fails.patch
+Patch0017: 0017-file-io-Add-fread-error-checks.patch
+Patch0018: 0018-tpm2_policy-Do-not-overflow-list-of-policy-digests.patch
+patch0101: 0001-tpm2_clockrateadjust-Fix-segfault.patch
+Patch0102: 0002-eventlog-TCG-PC-Client-FPF-renumbered-its-sections.patch
+Patch0106: 0006-build-remove-trailing-comma.patch
+
+
+
 
 # tpm2-tools is heavily depending on TPM2.0-TSS project, matched tss is required
 Requires: tpm2-tss%{?_isa} >= 3.1.0
@@ -33,8 +55,11 @@ tpm2-tools is a batch of tools for tpm2.0. It is based on tpm2-tss.
 
 %prep
 %autosetup -p1 -n %{name}-%{version}%{?candidate:-%{candidate}}
+# since we don't have pandoc, prevent recreation of man pages
+touch man/man1/*.1 -c
 
 %build
+autoreconf -i
 %configure --prefix=/usr --disable-static --disable-silent-rules
 %make_build
 
@@ -55,6 +80,10 @@ tpm2-tools is a batch of tools for tpm2.0. It is based on tpm2-tss.
 %{_mandir}/man1/tss2_*.1.gz
 
 %changelog
+* Thu Aug 21 2025 Štěpán Horáček <shoracek@redhat.com> - 5.7-5
+- Backport upstream fixes
+  Resolves: RHEL-94930 
+
 * Tue Oct 29 2024 Troy Dawson <tdawson@redhat.com> - 5.7-4
 - Bump release for October 2024 mass rebuild:
   Resolves: RHEL-64018

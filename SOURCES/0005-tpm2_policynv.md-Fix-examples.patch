@@ -1,0 +1,38 @@
+From a647d26b14f0933ca18c62a34891a71374ba4da8 Mon Sep 17 00:00:00 2001
+From: Juergen Repp <juergen_repp@web.de>
+Date: Thu, 25 Jul 2024 07:41:45 +0200
+Subject: [PATCH 05/18] tpm2_policynv.md Fix examples.
+
+The examples did not work as expected.
+Fixes: #3418
+
+Signed-off-by: Juergen Repp <juergen_repp@web.de>
+---
+ man/tpm2_policynv.1.md | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/man/tpm2_policynv.1.md b/man/tpm2_policynv.1.md
+index 297c24ef..b57a67f7 100644
+--- a/man/tpm2_policynv.1.md
++++ b/man/tpm2_policynv.1.md
+@@ -104,7 +104,7 @@ echo "aa" | xxd -r -p | tpm2_nvwrite -P nvpass -i- $nv_test_index
+ ```bash
+ tpm2_startauthsession -S session.ctx --policy-session
+ ### This should fail
+-echo 0xBB | tpm2_policynv -S session.ctx -L policy.nv -i- 0x1500001 eq -P nvpass
++echo "bb" | xxd -r -p | tpm2_policynv -S session.ctx -L policy.nv -i- 0x1500001 eq -P nvpass
+ tpm2_flushcontext session.ctx
+ ```
+ 
+@@ -112,7 +112,7 @@ tpm2_flushcontext session.ctx
+ ```bash
+ tpm2_startauthsession -S session.ctx --policy-session
+ ### This should pass
+-echo 0xAA | tpm2_policynv -S session.ctx -L policy.nv -i- 0x1500001 eq -P nvpass
++echo "aa" | xxd -r -p | tpm2_policynv -S session.ctx -L policy.nv -i- 0x1500001 eq -P nvpass
+ tpm2_flushcontext session.ctx
+ ```
+ 
+-- 
+2.49.0
+

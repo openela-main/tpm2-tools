@@ -1,0 +1,32 @@
+From cd7ef682c25eb16711a404c58f2b78fbefe1d0ef Mon Sep 17 00:00:00 2001
+From: orbea <orbea@riseup.net>
+Date: Thu, 12 Jun 2025 06:56:04 -0700
+Subject: [PATCH 6/6] build: remove trailing comma
+
+With slibtool this results in a failure:
+
+/usr/lib/gcc/x86_64-pc-linux-musl/14/../../../../x86_64-pc-linux-musl/bin/ld: cannot find : No such file or directory
+
+While GNU libtool seems to implicitly remove it.
+
+Signed-off-by: orbea <orbea@riseup.net>
+---
+ Makefile.am | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Makefile.am b/Makefile.am
+index 33dba438..114b8e50 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -277,7 +277,7 @@ test_unit_test_tpm2_auth_util_LDFLAGS  = -Wl,--wrap=Esys_TR_SetAuth \
+                                          -Wl,--wrap=fread \
+                                          -Wl,--wrap=fseek \
+                                          -Wl,--wrap=ftell \
+-                                         -Wl,--wrap=feof, \
++                                         -Wl,--wrap=feof \
+                                          -Wl,--wrap=fclose
+ test_unit_test_tpm2_auth_util_LDADD    = $(CMOCKA_LIBS) $(LDADD)
+ 
+-- 
+2.50.1
+

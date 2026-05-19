@@ -1,0 +1,40 @@
+From 5565dad8eeb01425f2df5860589c0e13ff3131ac Mon Sep 17 00:00:00 2001
+From: Juergen Repp <juergen_repp@web.de>
+Date: Mon, 23 Jun 2025 14:58:10 +0200
+Subject: [PATCH 1/6] tpm2_clockrateadjust: Fix segfault.
+
+tpm2_clockrateadjust did produce a segfault if no rate adjust specifier was used.
+Fixes: #3494x
+
+Signed-off-by: Juergen Repp <juergen_repp@web.de>
+---
+ tools/tpm2_clockrateadjust.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/tools/tpm2_clockrateadjust.c b/tools/tpm2_clockrateadjust.c
+index 7d32129c..8e4eb693 100644
+--- a/tools/tpm2_clockrateadjust.c
++++ b/tools/tpm2_clockrateadjust.c
+@@ -39,6 +39,7 @@ struct tpm2_setclock_ctx {
+ static tpm2_setclock_ctx ctx = {
+     .auth_hierarchy.ctx_path = "o", /* default to owner hierarchy */
+     .parameter_hash_algorithm = TPM2_ALG_ERROR,
++    .adjustment = NULL,
+ };
+ 
+ 
+@@ -143,6 +144,11 @@ static tool_rc check_options(ESYS_CONTEXT *ectx) {
+ 
+     UNUSED(ectx);
+ 
++    if (!ctx.adjustment) {
++        LOG_ERR("No clock rate adjust specifier is used");
++        return tool_rc_option_error;
++    }
++
+     size_t len = strlen(ctx.adjustment);
+     if (len > 3) {
+         LOG_ERR("Expected at most 3 adjustment characters");
+-- 
+2.50.1
+

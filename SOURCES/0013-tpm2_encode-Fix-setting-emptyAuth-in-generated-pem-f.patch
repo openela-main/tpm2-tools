@@ -1,0 +1,31 @@
+From 0a5ef2dc917e47d57c032517a9771706860c79c5 Mon Sep 17 00:00:00 2001
+From: Juergen Repp <juergen_repp@web.de>
+Date: Mon, 17 Feb 2025 18:04:49 +0100
+Subject: [PATCH 13/18] tpm2_encode: Fix setting emptyAuth in generated pem
+ file.
+
+emptyAuth was set to 1 if an auth value for the input key was
+used  and to 0 if an auth value was used.
+Fixes: #3458
+
+Signed-off-by: Juergen Repp <juergen_repp@web.de>
+---
+ tools/misc/tpm2_encodeobject.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tools/misc/tpm2_encodeobject.c b/tools/misc/tpm2_encodeobject.c
+index 3990a018..a329fef5 100644
+--- a/tools/misc/tpm2_encodeobject.c
++++ b/tools/misc/tpm2_encodeobject.c
+@@ -165,7 +165,7 @@ static int encode(ESYS_CONTEXT *ectx) {
+         goto error;
+     }
+ 
+-    tpk->emptyAuth = ctx.object.needs_auth;
++    tpk->emptyAuth = !ctx.object.needs_auth;
+ 
+     bn_parent = BN_new();
+     if (!bn_parent) {
+-- 
+2.49.0
+
