@@ -1,0 +1,96 @@
+ man/man1/tpm2_checkquote.1   |  15 +++-
+ man/man1/tpm2_pcrread.1      |  11 +--
+ man/man1/tpm2_quote.1        |  11 +--
+
+diff --git a/man/man1/tpm2_checkquote.1 b/man/man1/tpm2_checkquote.1
+index 5909f4dc..11f335ac 100644
+--- a/man/man1/tpm2_checkquote.1
++++ b/man/man1/tpm2_checkquote.1
+@@ -70,10 +70,21 @@ Can either be a hex string or path.
+ This is typically used to add a nonce against replay attacks.
+ .RE
+ .IP \[bu] 2
+-\f[B]\-F\f[R], \f[B]\-\-format\f[R]=\f[I]FORMAT\f[R]:
++\f[B]\-F\f[R], \f[B]\-\-pcrs_format\f[R]=\f[I]FORMAT\f[R]:
+ .RS 2
+ .PP
+-\f[B]DEPRECATED\f[R] and \f[B]IGNORED \f[R] as it\[cq]s superfluous.
++Format selection for the binary blob in the PCR output file.
++`values' will output a binary blob of the PCR values.
++`serialized' will write or read a binary blob of the PCR values in the
++form of serialized data structure in little endian format.
++`marshaled' will will read or write a binary blob in the binary format
++used by the TSS2 marshaling and unmarshaling functions.
++If marshaled is used the data is serialized in the following order:
++TPML_PCR_SELECTION, UINT32 (the number of following TPML_DIGEST
++elements) TPML_DIGEST [number of TPML_DIGEST elements].
++Optional.
++If \-l is provided `normalized' will be used.
++Otherwise `serialized' is the default.
+ .RE
+ .SS References
+ .SH Algorithm Specifiers
+diff --git a/man/man1/tpm2_pcrread.1 b/man/man1/tpm2_pcrread.1
+index a20b4efd..1c358a29 100644
+--- a/man/man1/tpm2_pcrread.1
++++ b/man/man1/tpm2_pcrread.1
+@@ -56,10 +56,13 @@ The output file to write the PCR values in binary format, optional.
+ .PP
+ Format selection for the binary blob in the PCR output file.
+ `values' will output a binary blob of the PCR values.
+-`serialized' will output a binary blob of the PCR values in the form of
+-serialized data structure in little endian format.
+-Optional.
+-Default is `values'.
++`serialized' will write or read a binary blob of the PCR values in the
++form of serialized data structure in little endian format.
++`marshaled' will will read or write a binary blob in the binary format
++used by the TSS2 marshaling and unmarshaling functions.
++If marshaled is used the data is serialized in the following order:
++TPML_PCR_SELECTION, UINT32 (the number of following TPML_DIGEST
++elements) TPML_DIGEST [number of TPML_DIGEST elements].
+ .RE
+ .SH COMMON OPTIONS
+ .PP
+diff --git a/man/man1/tpm2_quote.1 b/man/man1/tpm2_quote.1
+index 087fa8a0..406bb09b 100644
+--- a/man/man1/tpm2_quote.1
++++ b/man/man1/tpm2_quote.1
+@@ -66,10 +66,13 @@ PCR output file, optional, records the list of PCR values as defined by
+ .PP
+ Format selection for the binary blob in the PCR output file.
+ `values' will output a binary blob of the PCR values.
+-`serialized' will output a binary blob of the PCR values in the form of
+-serialized data structure in little endian format.
+-Optional.
+-Default is `serialized'.
++`serialized' will write or read a binary blob of the PCR values in the
++form of serialized data structure in little endian format.
++`marshaled' will will read or write a binary blob in the binary format
++used by the TSS2 marshaling and unmarshaling functions.
++If marshaled is used the data is serialized in the following order:
++TPML_PCR_SELECTION, UINT32 (the number of following TPML_DIGEST
++elements) TPML_DIGEST [number of TPML_DIGEST elements].
+ .RE
+ .IP \[bu] 2
+ \f[B]\-q\f[R], \f[B]\-\-qualification\f[R]=\f[I]HEX_STRING_OR_PATH\f[R]:
+diff --git a/man/tpm2_checkquote.1.md b/man/tpm2_checkquote.1.md
+index 34ab8925..635f9555 100644
+--- a/man/tpm2_checkquote.1.md
++++ b/man/tpm2_checkquote.1.md
+@@ -53,9 +53,10 @@ must be specified using the **-l** option to interpret the PCR data.
+     Qualification data for the quote. Can either be a hex string or path.
+     This is typically used to add a nonce against replay attacks.
+ 
+-  * **-F**, **\--format**=_FORMAT_:
++[PCR output file format specifiers](common/pcrs_format.md)
++    If -l is provided 'normalized' will be used. Otherwise 'serialized' is
++    the default.
+ 
+-    **DEPRECATED** and **IGNORED ** as it's superfluous.
+ 
+ ## References
+ 
+-- 
+2.51.0
+

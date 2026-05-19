@@ -1,0 +1,804 @@
+From deabe3a1fccfec9080097d7e90e98b92f3925f0a Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C5=A0t=C4=9Bp=C3=A1n=20Hor=C3=A1=C4=8Dek?=
+ <shoracek@redhat.com>
+Date: Fri, 8 Aug 2025 22:24:30 +0200
+Subject: [PATCH] tpm2_eventlog: Fix parsing on big-endian systems
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Signed-off-by: Štěpán Horáček <shoracek@redhat.com>
+---
+ lib/tpm2_eventlog.c      |  69 ++++++-------
+ lib/tpm2_eventlog_yaml.c | 209 ++++++++++++++++++++-------------------
+ 2 files changed, 140 insertions(+), 138 deletions(-)
+
+diff --git a/lib/tpm2_eventlog.c b/lib/tpm2_eventlog.c
+index 28fdba0e..b9c8b827 100644
+--- a/lib/tpm2_eventlog.c
++++ b/lib/tpm2_eventlog.c
+@@ -1,6 +1,7 @@
+ #include <inttypes.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include <endian.h>
+ 
+ #include <tss2/tss2_tpm2_types.h>
+ 
+@@ -54,7 +55,7 @@ bool foreach_digest2(tpm2_eventlog_context *ctx, UINT32 eventType, unsigned pcr_
+             return false;
+         }
+ 
+-        const TPMI_ALG_HASH alg = digest->AlgorithmId;
++        const TPMI_ALG_HASH alg = le16toh(digest->AlgorithmId);
+         const size_t alg_size = tpm2_alg_util_get_hash_size(alg);
+         if (size < sizeof(*digest) + alg_size) {
+             LOG_ERR("insufficient size for digest buffer");
+@@ -119,13 +120,13 @@ bool parse_event2body(TCG_EVENT2 const *event, UINT32 type) {
+     case EV_EFI_VARIABLE_AUTHORITY:
+         {
+             UEFI_VARIABLE_DATA *data = (UEFI_VARIABLE_DATA*)event->Event;
+-            if (event->EventSize < sizeof(*data)) {
++            if (le32toh(event->EventSize) < sizeof(*data)) {
+                 LOG_ERR("size is insufficient for UEFI variable data");
+                 return false;
+             }
+ 
+-            if (event->EventSize < sizeof(*data) + data->UnicodeNameLength *
+-                sizeof(UTF16_CHAR) + data->VariableDataLength)
++            if (le32toh(event->EventSize) < sizeof(*data) + le64toh(data->UnicodeNameLength) *
++                sizeof(UTF16_CHAR) + le64toh(data->VariableDataLength))
+             {
+                 LOG_ERR("size is insufficient for UEFI variable data");
+                 return false;
+@@ -143,7 +144,7 @@ bool parse_event2body(TCG_EVENT2 const *event, UINT32 type) {
+             UEFI_PLATFORM_FIRMWARE_BLOB *data =
+                 (UEFI_PLATFORM_FIRMWARE_BLOB*)event->Event;
+             UNUSED(data);
+-            if (event->EventSize < sizeof(*data)) {
++            if (le32toh(event->EventSize) < sizeof(*data)) {
+                 LOG_ERR("size is insufficient for UEFI FW blob data");
+                 return false;
+             }
+@@ -155,7 +156,7 @@ bool parse_event2body(TCG_EVENT2 const *event, UINT32 type) {
+         {
+             UEFI_IMAGE_LOAD_EVENT *data = (UEFI_IMAGE_LOAD_EVENT*)event->Event;
+             UNUSED(data);
+-            if (event->EventSize < sizeof(*data)) {
++            if (le32toh(event->EventSize) < sizeof(*data)) {
+                 LOG_ERR("size is insufficient for UEFI image load event");
+                 return false;
+             }
+@@ -185,9 +186,9 @@ bool parse_event2(TCG_EVENT_HEADER2 const *eventhdr, size_t buf_size,
+         .data = digests_size,
+         .digest2_cb = digest2_accumulator_callback,
+     };
+-    ret = foreach_digest2(&ctx, eventhdr->EventType,
+-                          eventhdr->PCRIndex, 
+-                          eventhdr->Digests, eventhdr->DigestCount,
++    ret = foreach_digest2(&ctx, le32toh(eventhdr->EventType),
++                          le32toh(eventhdr->PCRIndex), 
++                          eventhdr->Digests, le32toh(eventhdr->DigestCount),
+                           buf_size - sizeof(*eventhdr), 0);
+     if (ret != true) {
+         return false;
+@@ -201,11 +202,11 @@ bool parse_event2(TCG_EVENT_HEADER2 const *eventhdr, size_t buf_size,
+     }
+     *event_size += sizeof(*event);
+ 
+-    if (buf_size < *event_size + event->EventSize) {
++    if (buf_size < *event_size + le32toh(event->EventSize)) {
+         LOG_ERR("size insufficient for event data");
+         return false;
+     }
+-    *event_size += event->EventSize;
++    *event_size += le32toh(event->EventSize);
+ 
+     return true;
+ }
+@@ -222,19 +223,19 @@ bool parse_sha1_log_event(tpm2_eventlog_context *ctx, TCG_EVENT const *event, si
+     }
+     *event_size = sizeof(*event);
+ 
+-    pcr = ctx->sha1_pcrs[ event->pcrIndex];
+-    if (event->eventType != EV_NO_ACTION && pcr) {
++    pcr = ctx->sha1_pcrs[le32toh(event->pcrIndex)];
++    if (le32toh(event->eventType) != EV_NO_ACTION && pcr) {
+         tpm2_openssl_pcr_extend(TPM2_ALG_SHA1, pcr, &event->digest[0], 20);
+-        ctx->sha1_used |= (1 << event->pcrIndex);
++        ctx->sha1_used |= (1 << le32toh(event->pcrIndex));
+     }
+ 
+     /* buffer size must be sufficient to hold event and event data */
+     if (size < sizeof(*event) + (sizeof(event->event[0]) *
+-                                 event->eventDataSize)) {
++                                 le32toh(event->eventDataSize))) {
+         LOG_ERR("insufficient size for SpecID event data");
+         return false;
+     }
+-    *event_size += event->eventDataSize;
++    *event_size += le32toh(event->eventDataSize);
+     return true;
+ }
+ 
+@@ -273,14 +274,14 @@ bool foreach_sha1_log_event(tpm2_eventlog_context *ctx, TCG_EVENT const *eventhd
+             }
+         }
+ 
+-        ret = parse_event2body(event, eventhdr->eventType);
++        ret = parse_event2body(event, le32toh(eventhdr->eventType));
+         if (ret != true) {
+             return ret;
+         }
+ 
+         /* event data callback */
+         if (ctx->event2_cb != NULL) {
+-            ret = ctx->event2_cb(event, eventhdr->eventType, ctx->data,
++            ret = ctx->event2_cb(event, le32toh(eventhdr->eventType), ctx->data,
+                                  ctx->eventlog_version);
+             if (ret != true) {
+                 return false;
+@@ -427,7 +428,7 @@ bool foreach_event2(tpm2_eventlog_context *ctx, TCG_EVENT_HEADER2 const *eventhd
+ 
+         TCG_EVENT2 *event = (TCG_EVENT2*)((uintptr_t)eventhdr->Digests + digests_size);
+ 
+-        if (eventhdr->EventType == EV_EFI_HCRTM_EVENT && eventhdr->PCRIndex == 0) {
++        if (le32toh(eventhdr->EventType) == EV_EFI_HCRTM_EVENT && le32toh(eventhdr->PCRIndex) == 0) {
+             found_hcrtm = true;
+         }
+ 
+@@ -455,13 +456,13 @@ bool foreach_event2(tpm2_eventlog_context *ctx, TCG_EVENT_HEADER2 const *eventhd
+         }
+ 
+         /* digest callback foreach digest */
+-        ret = foreach_digest2(ctx, eventhdr->EventType, eventhdr->PCRIndex,
+-                              eventhdr->Digests, eventhdr->DigestCount, digests_size, locality);
++        ret = foreach_digest2(ctx, le32toh(eventhdr->EventType), le32toh(eventhdr->PCRIndex),
++                              eventhdr->Digests, le32toh(eventhdr->DigestCount), digests_size, locality);
+         if (ret != true) {
+             return false;
+         }
+ 
+-        ret = parse_event2body(event, eventhdr->EventType);
++        ret = parse_event2body(event, le32toh(eventhdr->EventType));
+         if (ret != true) {
+             return ret;
+         }
+@@ -473,7 +474,7 @@ bool foreach_event2(tpm2_eventlog_context *ctx, TCG_EVENT_HEADER2 const *eventhd
+ 
+         /* event data callback */
+         if (ctx->event2_cb != NULL) {
+-            ret = ctx->event2_cb(event, eventhdr->EventType, ctx->data, ctx->eventlog_version);
++            ret = ctx->event2_cb(event, le32toh(eventhdr->EventType), ctx->data, ctx->eventlog_version);
+             if (ret != true) {
+                 return false;
+             }
+@@ -492,12 +493,12 @@ bool specid_event(TCG_EVENT const *event, size_t size,
+         return false;
+     }
+ 
+-    if (event->eventType != EV_NO_ACTION) {
++    if (le32toh(event->eventType) != EV_NO_ACTION) {
+         LOG_ERR("SpecID eventType must be EV_NO_ACTION");
+         return false;
+     }
+ 
+-    if (event->pcrIndex != 0) {
++    if (le32toh(event->pcrIndex) != 0) {
+         LOG_ERR("bad pcrIndex for EV_NO_ACTION event");
+         return false;
+     }
+@@ -511,29 +512,29 @@ bool specid_event(TCG_EVENT const *event, size_t size,
+     }
+ 
+     /* eventDataSize must be sufficient to hold the specid event */
+-    if (event->eventDataSize < sizeof(TCG_SPECID_EVENT)) {
++    if (le32toh(event->eventDataSize) < sizeof(TCG_SPECID_EVENT)) {
+         LOG_ERR("invalid eventDataSize in specid event");
+         return false;
+     }
+ 
+     /* buffer size must be sufficient to hold event and event data */
+     if (size < sizeof(*event) + (sizeof(event->event[0]) *
+-                                 event->eventDataSize)) {
++                                 le32toh(event->eventDataSize))) {
+         LOG_ERR("insufficient size for SpecID event data");
+         return false;
+     }
+ 
+     /* specid event must have 1 or more algorithms */
+     TCG_SPECID_EVENT *event_specid = (TCG_SPECID_EVENT*)event->event;
+-    if (event_specid->numberOfAlgorithms == 0) {
++    if (le32toh(event_specid->numberOfAlgorithms) == 0) {
+         LOG_ERR("numberOfAlgorithms is invalid, may not be 0");
+         return false;
+     }
+ 
+     /* buffer size must be sufficient to hold event, specid event & algs */
+     if (size < sizeof(*event) + sizeof(*event_specid) +
+-               sizeof(event_specid->digestSizes[0]) *
+-               event_specid->numberOfAlgorithms) {
++               sizeof(event_specid->digestSizes[0]) * 
++               le32toh(event_specid->numberOfAlgorithms)) {
+         LOG_ERR("insufficient size for SpecID algorithms");
+         return false;
+     }
+@@ -541,18 +542,18 @@ bool specid_event(TCG_EVENT const *event, size_t size,
+     /* size must be sufficient for event, specid, algs & vendor stuff */
+     if (size < sizeof(*event) + sizeof(*event_specid) +
+                sizeof(event_specid->digestSizes[0]) *
+-               event_specid->numberOfAlgorithms + sizeof(TCG_VENDOR_INFO)) {
++               le32toh(event_specid->numberOfAlgorithms) + sizeof(TCG_VENDOR_INFO)) {
+         LOG_ERR("insufficient size for VendorStuff");
+         return false;
+     }
+ 
+     TCG_VENDOR_INFO *vendor = (TCG_VENDOR_INFO*)((uintptr_t)event_specid->digestSizes +
+                                                  sizeof(*event_specid->digestSizes) *
+-                                                 event_specid->numberOfAlgorithms);
++                                                 le32toh(event_specid->numberOfAlgorithms));
+     /* size must be sufficient for vendorInfo */
+     if (size < sizeof(*event) + sizeof(*event_specid) +
+                sizeof(event_specid->digestSizes[0]) *
+-               event_specid->numberOfAlgorithms + sizeof(*vendor) +
++               le32toh(event_specid->numberOfAlgorithms) + sizeof(*vendor) +
+                vendor->vendorInfoSize) {
+         LOG_ERR("insufficient size for VendorStuff data");
+         return false;
+@@ -573,7 +574,7 @@ bool parse_eventlog(tpm2_eventlog_context *ctx, BYTE const *eventlog, size_t siz
+     }
+ 
+     TCG_EVENT *event = (TCG_EVENT*)eventlog;
+-    if (event->eventType == EV_NO_ACTION) {
++    if (le32toh(event->eventType) == EV_NO_ACTION) {
+         TCG_EVENT_HEADER2 *next;
+         bool ret = specid_event(event, size, &next);
+         if (!ret) {
+diff --git a/lib/tpm2_eventlog_yaml.c b/lib/tpm2_eventlog_yaml.c
+index 343fb658..cf1ca6fe 100644
+--- a/lib/tpm2_eventlog_yaml.c
++++ b/lib/tpm2_eventlog_yaml.c
+@@ -5,6 +5,7 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <uchar.h>
++#include <endian.h>
+ 
+ #include <tss2/tss2_tpm2_types.h>
+ 
+@@ -42,7 +43,7 @@
+ static void guid_unparse_lower(EFI_GUID guid, char guid_buf[37]) {
+ 
+     snprintf(guid_buf, 37, "%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+-            guid.Data1, guid.Data2, guid.Data3, guid.Data4[0], guid.Data4[1],
++            le32toh(guid.Data1), le16toh(guid.Data2), le16toh(guid.Data3), guid.Data4[0], guid.Data4[1],
+             guid.Data4[2], guid.Data4[3], guid.Data4[4],
+             guid.Data4[5], guid.Data4[6], guid.Data4[7]);
+ }
+@@ -134,9 +135,9 @@ void yaml_event2hdr(TCG_EVENT_HEADER2 const *eventhdr, size_t size) {
+     tpm2_tool_output("  PCRIndex: %d\n"
+                      "  EventType: %s\n"
+                      "  DigestCount: %d\n",
+-                     eventhdr->PCRIndex,
+-                     eventtype_to_string(eventhdr->EventType),
+-                     eventhdr->DigestCount);
++                     le32toh(eventhdr->PCRIndex),
++                     eventtype_to_string(le32toh(eventhdr->EventType)),
++                     le32toh(eventhdr->DigestCount));
+ 
+     return;
+ }
+@@ -146,8 +147,8 @@ void yaml_sha1_log_eventhdr(TCG_EVENT const *eventhdr, size_t size) {
+ 
+     tpm2_tool_output("  PCRIndex: %d\n"
+                      "  EventType: %s\n",
+-                     eventhdr->pcrIndex,
+-                     eventtype_to_string(eventhdr->eventType));
++                     le32toh(eventhdr->pcrIndex),
++                     eventtype_to_string(le32toh(eventhdr->eventType)));
+ 
+     return;
+ }
+@@ -161,7 +162,7 @@ bool yaml_digest2(TCG_DIGEST2 const *digest, size_t size) {
+ 
+     tpm2_tool_output("  - AlgorithmId: %s\n"
+                      "    Digest: \"%s\"\n",
+-                     tpm2_alg_util_algtostr(digest->AlgorithmId, tpm2_alg_util_flags_hash),
++                     tpm2_alg_util_algtostr(le16toh(digest->AlgorithmId), tpm2_alg_util_flags_hash),
+                      hexstr);
+ 
+     return true;
+@@ -181,7 +182,7 @@ static char *yaml_utf16_to_str(UTF16_CHAR *data, size_t len) {
+     }
+ 
+     for(size_t i = 0; i < len; ++i, tmp += ret) {
+-        ret = c16rtomb(tmp, data[i].c, &st);
++        ret = c16rtomb(tmp, le16toh(data[i].c), &st);
+         if (ret < 0) {
+             LOG_ERR("c16rtomb failed: %s", strerror(errno));
+             free(mbstr);
+@@ -190,21 +191,21 @@ static char *yaml_utf16_to_str(UTF16_CHAR *data, size_t len) {
+     }
+     return mbstr;
+ }
+-#define VAR_DATA_HEX_SIZE(data) BYTES_TO_HEX_STRING_SIZE(data->VariableDataLength)
++#define VAR_DATA_HEX_SIZE(data) BYTES_TO_HEX_STRING_SIZE(le64toh(data->VariableDataLength))
+ static bool yaml_uefi_var_data(UEFI_VARIABLE_DATA *data) {
+ 
+-    if (data->VariableDataLength == 0) {
++    if (le64toh(data->VariableDataLength) == 0) {
+         return true;
+     }
+ 
+     char *var_data = calloc (1, VAR_DATA_HEX_SIZE(data));
+     uint8_t *variable_data = (uint8_t*)&data->UnicodeName[
+-        data->UnicodeNameLength];
++        le64toh(data->UnicodeNameLength)];
+     if (var_data == NULL) {
+         LOG_ERR("failled to allocate data: %s\n", strerror(errno));
+         return false;
+     }
+-    bytes_to_str(variable_data, data->VariableDataLength, var_data,
++    bytes_to_str(variable_data, le64toh(data->VariableDataLength), var_data,
+                  VAR_DATA_HEX_SIZE(data));
+ 
+     tpm2_tool_output("    VariableData: \"%s\"\n", var_data);
+@@ -232,7 +233,7 @@ static bool yaml_uefi_var_data(UEFI_VARIABLE_DATA *data) {
+  */
+ 
+ static bool yaml_uefi_post_code(const TCG_EVENT2* const event) {
+-    const size_t len = event->EventSize;
++    const size_t len = le32toh(event->EventSize);
+ 
+     /* if length is 16, we treat it as EV_EFI_PLATFORM_FIRMWARE_BLOB */
+     if (len == 16) {
+@@ -306,28 +307,28 @@ static bool yaml_uefi_var(UEFI_VARIABLE_DATA *data, size_t size, UINT32 type,
+                      "    VariableName: %s\n"
+                      "    UnicodeNameLength: %"PRIu64"\n"
+                      "    VariableDataLength: %" PRIu64 "\n",
+-                     uuidstr, data->UnicodeNameLength,
+-                     data->VariableDataLength);
++                     uuidstr, le64toh(data->UnicodeNameLength),
++                     le64toh(data->VariableDataLength));
+ 
+     start += sizeof(*data);
+-    if (start + data->UnicodeNameLength*2 > size) {
++    if (start + le64toh(data->UnicodeNameLength)*2 > size) {
+         LOG_ERR("EventSize is too small\n");
+         return false;
+     }
+ 
+-    char *ret = yaml_utf16_to_str(data->UnicodeName, data->UnicodeNameLength);
++    char *ret = yaml_utf16_to_str(data->UnicodeName, le64toh(data->UnicodeNameLength));
+     if (!ret) {
+         return false;
+     }
+     tpm2_tool_output("    UnicodeName: %s\n", ret);
+ 
+-    start += data->UnicodeNameLength*2;
++    start += le64toh(data->UnicodeNameLength)*2;
+     /* Try to parse as much as we can without fail-stop. Bugs in firmware, shim,
+      * grub could produce inconsistent metadata. As long as it is not preventing
+      * us from parsing the data, we try to continue while giving a warning
+      * message.
+      */
+-    if (start + data->VariableDataLength > size) {
++    if (start + le64toh(data->VariableDataLength) > size) {
+         LOG_ERR("EventSize is inconsistent with actual data\n");
+     }
+ 
+@@ -345,7 +346,7 @@ static bool yaml_uefi_var(UEFI_VARIABLE_DATA *data, size_t size, UINT32 type,
+                 free(ret);
+                 tpm2_tool_output("    VariableData:\n");
+                 uint8_t *variable_data = (uint8_t *)&data->UnicodeName[
+-                    data->UnicodeNameLength];
++                    le64toh(data->UnicodeNameLength)];
+                 /* iterate through each EFI_SIGNATURE_LIST */
+                 while (start < size) {
+                     EFI_SIGNATURE_LIST *slist = (EFI_SIGNATURE_LIST *)variable_data;
+@@ -354,7 +355,7 @@ static bool yaml_uefi_var(UEFI_VARIABLE_DATA *data, size_t size, UINT32 type,
+                         break;
+                     }
+ 
+-                    if (slist->SignatureSize < 16) {
++                    if (le32toh(slist->SignatureSize) < 16) {
+                         LOG_ERR("SignatureSize is too small\n");
+                         break;
+                     }
+@@ -365,67 +366,67 @@ static bool yaml_uefi_var(UEFI_VARIABLE_DATA *data, size_t size, UINT32 type,
+                                      "      SignatureHeaderSize: %" PRIu32 "\n"
+                                      "      SignatureSize: %" PRIu32 "\n"
+                                      "      Keys:\n",
+-                                     uuidstr, slist->SignatureListSize,
+-                                     slist->SignatureHeaderSize,
+-                                     slist->SignatureSize);
++                                     uuidstr, le32toh(slist->SignatureListSize),
++                                     le32toh(slist->SignatureHeaderSize),
++                                     le32toh(slist->SignatureSize));
+ 
+-                    start += (sizeof(*slist) + slist->SignatureHeaderSize);
+-                    if (start + slist->SignatureSize > size) {
++                    start += (sizeof(*slist) + le32toh(slist->SignatureHeaderSize));
++                    if (start + le32toh(slist->SignatureSize) > size) {
+                         LOG_ERR("EventSize is inconsistent with actual data\n");
+                         break;
+                     }
+ 
+-                    int signature_size = slist->SignatureListSize -
+-                        sizeof(*slist) - slist->SignatureHeaderSize;
+-                    if (signature_size < 0 || signature_size % slist->SignatureSize != 0) {
++                    int signature_size = le32toh(slist->SignatureListSize) -
++                        sizeof(*slist) - le32toh(slist->SignatureHeaderSize);
++                    if (signature_size < 0 || signature_size % le32toh(slist->SignatureSize) != 0) {
+                         LOG_ERR("Malformed EFI_SIGNATURE_LIST\n");
+                         break;
+                     }
+ 
+                     uint8_t *signature = (uint8_t *)slist +
+-                        sizeof(*slist) + slist->SignatureHeaderSize;
+-                    int signatures = signature_size / slist->SignatureSize;
++                        sizeof(*slist) + le32toh(slist->SignatureHeaderSize);
++                    int signatures = signature_size / le32toh(slist->SignatureSize);
+                     /* iterate through each EFI_SIGNATURE on the list */
+                     int i;
+                     for (i = 0; i < signatures; i++) {
+                         EFI_SIGNATURE_DATA *s = (EFI_SIGNATURE_DATA *)signature;
+                         char *sdata = calloc (1,
+-                            BYTES_TO_HEX_STRING_SIZE(slist->SignatureSize - sizeof(EFI_GUID)));
++                            BYTES_TO_HEX_STRING_SIZE(le32toh(slist->SignatureSize) - sizeof(EFI_GUID)));
+                         if (sdata == NULL) {
+                             LOG_ERR("Failled to allocate data: %s\n", strerror(errno));
+                             return false;
+                         }
+-                        bytes_to_str(s->SignatureData, slist->SignatureSize - sizeof(EFI_GUID),
+-                            sdata, BYTES_TO_HEX_STRING_SIZE(slist->SignatureSize - sizeof(EFI_GUID)));
++                        bytes_to_str(s->SignatureData, le32toh(slist->SignatureSize) - sizeof(EFI_GUID),
++                            sdata, BYTES_TO_HEX_STRING_SIZE(le32toh(slist->SignatureSize) - sizeof(EFI_GUID)));
+                         guid_unparse_lower(s->SignatureOwner, uuidstr);
+                         tpm2_tool_output("      - SignatureOwner: %s\n"
+                                          "        SignatureData: %s\n",
+                                          uuidstr, sdata);
+                         free(sdata);
+ 
+-                        signature += slist->SignatureSize;
+-                        start += slist->SignatureSize;
++                        signature += le32toh(slist->SignatureSize);
++                        start += le32toh(slist->SignatureSize);
+                         if (start > size) {
+                             LOG_ERR("Malformed EFI_SIGNATURE_DATA\n");
+                             break;
+                         }
+                     }
+-                    variable_data += slist->SignatureListSize;
++                    variable_data += le32toh(slist->SignatureListSize);
+                 }
+                 return true;
+             } else if ((strlen(ret) == NAME_SECUREBOOT_LEN && strncmp(ret, NAME_SECUREBOOT, NAME_SECUREBOOT_LEN) == 0)) {
+                 free(ret);
+                 tpm2_tool_output("    VariableData:\n"
+                                  "      Enabled: ");
+-                if (data->VariableDataLength == 0) {
++                if (le64toh(data->VariableDataLength) == 0) {
+                     tpm2_tool_output("'No'\n");
+-                } else if (data->VariableDataLength > 1) {
++                } else if (le64toh(data->VariableDataLength) > 1) {
+                     LOG_ERR("SecureBoot value length %" PRIu64 " is unexpectedly > 1\n",
+-                            data->VariableDataLength);
++                            le64toh(data->VariableDataLength));
+                     return false;
+                 } else {
+                     uint8_t *variable_data = (uint8_t *)&data->UnicodeName[
+-                        data->UnicodeNameLength];
++                        le64toh(data->UnicodeNameLength)];
+                     if (*variable_data == 0) {
+                         tpm2_tool_output("'No'\n");
+                     } else {
+@@ -440,15 +441,15 @@ static bool yaml_uefi_var(UEFI_VARIABLE_DATA *data, size_t size, UINT32 type,
+                 free(ret);
+                 tpm2_tool_output("    VariableData:\n"
+                                  "      Enabled: ");
+-                if (data->VariableDataLength == 0) {
++                if (le64toh(data->VariableDataLength) == 0) {
+                     tpm2_tool_output("'No'\n");
+-                } else if (data->VariableDataLength > 1) {
++                } else if (le64toh(data->VariableDataLength) > 1) {
+                     LOG_ERR("MokListTrusted value length %" PRIu64 " is unexpectedly > 1\n",
+-                            data->VariableDataLength);
++                            le64toh(data->VariableDataLength));
+                     return false;
+                 } else {
+                     uint8_t *variable_data = (uint8_t *)&data->UnicodeName[
+-                        data->UnicodeNameLength];
++                        le64toh(data->UnicodeNameLength)];
+                     if (*variable_data == 0) {
+                         tpm2_tool_output("'No'\n");
+                     } else {
+@@ -461,15 +462,15 @@ static bool yaml_uefi_var(UEFI_VARIABLE_DATA *data, size_t size, UINT32 type,
+                 free(ret);
+                 tpm2_tool_output("    VariableData:\n");
+                 EFI_SIGNATURE_DATA *s= (EFI_SIGNATURE_DATA *)&data->UnicodeName[
+-                    data->UnicodeNameLength];
++                    le64toh(data->UnicodeNameLength)];
+                 char *sdata = calloc (1,
+-                    BYTES_TO_HEX_STRING_SIZE(data->VariableDataLength - sizeof(EFI_GUID)));
++                    BYTES_TO_HEX_STRING_SIZE(le64toh(data->VariableDataLength) - sizeof(EFI_GUID)));
+                 if (sdata == NULL) {
+                     LOG_ERR("Failled to allocate data: %s\n", strerror(errno));
+                     return false;
+                 }
+-                bytes_to_str(s->SignatureData, data->VariableDataLength - sizeof(EFI_GUID),
+-                    sdata, BYTES_TO_HEX_STRING_SIZE(data->VariableDataLength - sizeof(EFI_GUID)));
++                bytes_to_str(s->SignatureData, le64toh(data->VariableDataLength) - sizeof(EFI_GUID),
++                    sdata, BYTES_TO_HEX_STRING_SIZE(le64toh(data->VariableDataLength) - sizeof(EFI_GUID)));
+                 guid_unparse_lower(s->SignatureOwner, uuidstr);
+                 tpm2_tool_output("    - SignatureOwner: %s\n"
+                                 "      SignatureData: %s\n",
+@@ -484,14 +485,14 @@ static bool yaml_uefi_var(UEFI_VARIABLE_DATA *data, size_t size, UINT32 type,
+                 
+                 if (data->VariableDataLength % 2 != 0) {
+                     LOG_ERR("BootOrder value length %" PRIu64 " is not divisible by 2\n",
+-                            data->VariableDataLength);
++                            le64toh(data->VariableDataLength));
+                     return false;
+                 }
+ 
+                 uint8_t *variable_data = (uint8_t *)&data->UnicodeName[
+-                    data->UnicodeNameLength];
+-                for (uint64_t i = 0; i < data->VariableDataLength / 2; i++) {
+-                    tpm2_tool_output("    - Boot%04x\n", *((uint16_t*)variable_data + i));
++                    le64toh(data->UnicodeNameLength)];
++                for (uint64_t i = 0; i < le64toh(data->VariableDataLength) / 2; i++) {
++                    tpm2_tool_output("    - Boot%04x\n", le16toh(*((uint16_t*)variable_data + i)));
+                 }
+                 return true;
+             }
+@@ -505,27 +506,27 @@ static bool yaml_uefi_var(UEFI_VARIABLE_DATA *data, size_t size, UINT32 type,
+                 tpm2_tool_output("    VariableData:\n"
+                                  "      Enabled: ");
+                 EFI_LOAD_OPTION *loadopt = (EFI_LOAD_OPTION*)&data->UnicodeName[
+-                    data->UnicodeNameLength];
++                    le64toh(data->UnicodeNameLength)];
+ 
+-                if (loadopt->Attributes & 1) {
++                if (le32toh(loadopt->Attributes) & 1) {
+                     tpm2_tool_output("'Yes'\n");
+                 } else {
+                     tpm2_tool_output("'No'\n");
+                 }
+ 
+                 tpm2_tool_output("      FilePathListLength: %" PRIu16 "\n",
+-                    loadopt->FilePathListLength);
++                    le16toh(loadopt->FilePathListLength));
+ 
+                 tpm2_tool_output("      Description: \"");
+                 int i;
+-                for (i = 0; (wchar_t)loadopt->Description[i] != 0; i++) {
+-                    char16_t c = (char16_t)loadopt->Description[i];
++                for (i = 0; (wchar_t)le16toh(loadopt->Description[i]) != 0; i++) {
++                    char16_t c = (char16_t)le16toh(loadopt->Description[i]);
+                     tpm2_tool_output("%lc", c);
+                 }
+                 tpm2_tool_output("\"\n");
+ 
+                 uint8_t *devpath = (uint8_t*)&loadopt->Description[++i];
+-                size_t devpath_len =  (data->VariableDataLength -
++                size_t devpath_len =  (le64toh(data->VariableDataLength) -
+                     sizeof(EFI_LOAD_OPTION) - sizeof(UINT16) * i) * 2 + 1;
+ 
+                 char *buf = calloc(1, devpath_len);
+@@ -541,12 +542,12 @@ static bool yaml_uefi_var(UEFI_VARIABLE_DATA *data, size_t size, UINT32 type,
+                     free(dp);
+                 } else {
+                     /* fallback to printing the raw bytes if devicepath cannot be parsed */
+-                    bytes_to_str(devpath, data->VariableDataLength -
++                    bytes_to_str(devpath, le64toh(data->VariableDataLength) -
+                         sizeof(EFI_LOAD_OPTION) - sizeof(UINT16) * i, buf, devpath_len);
+                     tpm2_tool_output("      DevicePath: '%s'\n", buf);
+                 }
+ #else
+-                bytes_to_str(devpath, data->VariableDataLength -
++                bytes_to_str(devpath, le64toh(data->VariableDataLength) -
+                     sizeof(EFI_LOAD_OPTION) - sizeof(UINT16) * i, buf, devpath_len);
+                 tpm2_tool_output("      DevicePath: '%s'\n", buf);
+ #endif
+@@ -566,8 +567,8 @@ bool yaml_uefi_platfwblob(UEFI_PLATFORM_FIRMWARE_BLOB *data) {
+     tpm2_tool_output("  Event:\n"
+                      "    BlobBase: 0x%" PRIx64 "\n"
+                      "    BlobLength: 0x%" PRIx64 "\n",
+-                     data->BlobBase,
+-                     data->BlobLength);
++                     le64toh(data->BlobBase),
++                     le64toh(data->BlobLength));
+     return true;
+ }
+ 
+@@ -592,8 +593,8 @@ bool yaml_uefi_platfwblob2(UEFI_PLATFORM_FIRMWARE_BLOB2 *data) {
+                    blobdescsize,
+                    2*blobdescsize,
+                    eventdesc,
+-                   data2->BlobBase,
+-                   data2->BlobLength);
++                   le64toh(data2->BlobBase),
++                   le64toh(data2->BlobLength));
+ 
+   free(eventdesc);
+   return true;
+@@ -762,17 +763,17 @@ bool yaml_uefi_image_load(UEFI_IMAGE_LOAD_EVENT *data, size_t size) {
+         LOG_ERR("failed to allocate memory: %s\n", strerror(errno));
+         return false;
+     }
+-
++    
+     tpm2_tool_output("  Event:\n"
+                      "    ImageLocationInMemory: 0x%" PRIx64 "\n"
+                      "    ImageLengthInMemory: %" PRIu64 "\n"
+                      "    ImageLinkTimeAddress: 0x%" PRIx64 "\n"
+                      "    LengthOfDevicePath: %" PRIu64 "\n",
+-                     data->ImageLocationInMemory, data->ImageLengthInMemory,
+-                     data->ImageLinkTimeAddress, data->LengthOfDevicePath);
++                     le64toh(data->ImageLocationInMemory), le64toh(data->ImageLengthInMemory),
++                     le64toh(data->ImageLinkTimeAddress), le64toh(data->LengthOfDevicePath));
+ 
+ #ifdef HAVE_EFIVAR_EFIVAR_H
+-    char *dp = yaml_devicepath(data->DevicePath, data->LengthOfDevicePath); 
++    char *dp = yaml_devicepath(data->DevicePath, le64toh(data->LengthOfDevicePath)); 
+     if (dp) {
+         tpm2_tool_output("    DevicePath: '%s'\n", dp);
+         free(dp);
+@@ -822,24 +823,24 @@ bool yaml_gpt(UEFI_GPT_DATA *data, size_t size, uint32_t eventlog_version) {
+                          "    NumberOfPartitions: %" PRIu64 "\n"
+                          "    Partitions:\n",
+                          8, (char*)&header->Signature, /* 8-char ASCII string */
+-                         header->Revision,
+-                         header->HeaderSize,
+-                         header->HeaderCRC32,
+-                         header->MyLBA,
+-                         header->AlternateLBA,
+-                         header->FirstUsableLBA,
+-                         header->LastUsableLBA,
++                         le32toh(header->Revision),
++                         le32toh(header->HeaderSize),
++                         le32toh(header->HeaderCRC32),
++                         le64toh(header->MyLBA),
++                         le64toh(header->AlternateLBA),
++                         le64toh(header->FirstUsableLBA),
++                         le64toh(header->LastUsableLBA),
+                          guid,
+-                         header->PartitionEntryLBA,
+-                         header->NumberOfPartitionEntries,
+-                         header->SizeOfPartitionEntry,
+-                         header->PartitionEntryArrayCRC32,
+-                         data->NumberOfPartitions);
++                         le64toh(header->PartitionEntryLBA),
++                         le32toh(header->NumberOfPartitionEntries),
++                         le32toh(header->SizeOfPartitionEntry),
++                         le32toh(header->PartitionEntryArrayCRC32),
++                         le64toh(data->NumberOfPartitions));
+ 
+         size -= (sizeof(data->UEFIPartitionHeader) + sizeof(data->NumberOfPartitions));
+ 
+         UINT64 i;
+-        for (i = 0; i < data->NumberOfPartitions; i++) {
++        for (i = 0; i < le64toh(data->NumberOfPartitions); i++) {
+             UEFI_PARTITION_ENTRY *partition = &data->Partitions[i];
+             if (size < sizeof(*partition)) {
+                 LOG_ERR("Cannot parse GPT partition entry: insufficient data (%zu)\n", size);
+@@ -857,9 +858,9 @@ bool yaml_gpt(UEFI_GPT_DATA *data, size_t size, uint32_t eventlog_version) {
+                              "      Attributes: 0x%" PRIx64 "\n"
+                              "      PartitionName: \"%s\"\n",
+                              guid,
+-                             partition->StartingLBA,
+-                             partition->EndingLBA,
+-                             partition->Attributes,
++                             le64toh(partition->StartingLBA),
++                             le64toh(partition->EndingLBA),
++                             le64toh(partition->Attributes),
+                              part_name);
+             free(part_name);
+             size -= sizeof(*partition);
+@@ -898,9 +899,9 @@ bool yaml_event2data(TCG_EVENT2 const *event, UINT32 type, uint32_t eventlog_ver
+ 
+     char hexstr[EVENT_BUF_MAX] = { 0, };
+ 
+-    tpm2_tool_output("  EventSize: %" PRIu32 "\n", event->EventSize);
++    tpm2_tool_output("  EventSize: %" PRIu32 "\n", le32toh(event->EventSize));
+ 
+-    if (event->EventSize == 0) {
++    if (le32toh(event->EventSize) == 0) {
+         return true;
+     }
+ 
+@@ -909,8 +910,8 @@ bool yaml_event2data(TCG_EVENT2 const *event, UINT32 type, uint32_t eventlog_ver
+     case EV_EFI_VARIABLE_BOOT:
+     case EV_EFI_VARIABLE_BOOT2:
+     case EV_EFI_VARIABLE_AUTHORITY:
+-        return yaml_uefi_var((UEFI_VARIABLE_DATA*)event->Event,
+-                                event->EventSize, type, eventlog_version);
++        return yaml_uefi_var((UEFI_VARIABLE_DATA*)event->Event, 
++                                le32toh(event->EventSize), type, eventlog_version);
+     case EV_POST_CODE:
+         return yaml_uefi_post_code(event);
+     case EV_S_CRTM_CONTENTS:
+@@ -919,21 +920,21 @@ bool yaml_event2data(TCG_EVENT2 const *event, UINT32 type, uint32_t eventlog_ver
+     case EV_EFI_PLATFORM_FIRMWARE_BLOB2:
+         return yaml_uefi_platfwblob2((UEFI_PLATFORM_FIRMWARE_BLOB2*)event->Event);
+     case EV_EFI_ACTION:
+-        return yaml_uefi_action(event->Event, event->EventSize);
++        return yaml_uefi_action(event->Event, le32toh(event->EventSize));
+     case EV_IPL:
+-        return yaml_ipl(event->Event, event->EventSize);
++        return yaml_ipl(event->Event, le32toh(event->EventSize));
+     case EV_EFI_BOOT_SERVICES_APPLICATION:
+     case EV_EFI_BOOT_SERVICES_DRIVER:
+     case EV_EFI_RUNTIME_SERVICES_DRIVER:
+-        return yaml_uefi_image_load((UEFI_IMAGE_LOAD_EVENT*)event->Event,
+-                                    event->EventSize);
++        return yaml_uefi_image_load((UEFI_IMAGE_LOAD_EVENT*)event->Event, 
++                                    le32toh(event->EventSize));
+     case EV_EFI_GPT_EVENT:
+         return yaml_gpt((UEFI_GPT_DATA*)event->Event,
+-                        event->EventSize, eventlog_version);
++                        le32toh(event->EventSize), eventlog_version);
+     case EV_NO_ACTION:
+         return yaml_no_action((EV_NO_ACTION_STRUCT*)event->Event, event->EventSize, eventlog_version);
+     default:
+-        bytes_to_str(event->Event, event->EventSize, hexstr, sizeof(hexstr));
++        bytes_to_str(event->Event, le32toh(event->EventSize), hexstr, sizeof(hexstr));
+         tpm2_tool_output("  Event: \"%s\"\n", hexstr);
+         return true;
+     }
+@@ -999,9 +1000,9 @@ void yaml_eventhdr(TCG_EVENT const *event, size_t *count) {
+                      "  EventType: %s\n"
+                      "  Digest: \"%s\"\n"
+                      "  EventSize: %" PRIu32 "\n",
+-                     (*count)++, event->pcrIndex,
+-                     eventtype_to_string(event->eventType), digest_hex,
+-                     event->eventDataSize);
++                     (*count)++, le32toh(event->pcrIndex),
++                     eventtype_to_string(le32toh(event->eventType)), digest_hex,
++                     le32toh(event->eventDataSize));
+ }
+ 
+ void yaml_specid(TCG_SPECID_EVENT* specid) {
+@@ -1020,10 +1021,10 @@ void yaml_specid(TCG_SPECID_EVENT* specid) {
+                      "    numberOfAlgorithms: %" PRIu32 "\n"
+                      "    Algorithms:\n",
+                      sig_str,
+-                     specid->platformClass, specid->specVersionMinor,
++                     le32toh(specid->platformClass), specid->specVersionMinor,
+                      specid->specVersionMajor, specid->specErrata,
+                      specid->uintnSize,
+-                     specid->numberOfAlgorithms);
++                     le32toh(specid->numberOfAlgorithms));
+ 
+ }
+ void yaml_specid_algs(TCG_SPECID_ALG const *alg, size_t count) {
+@@ -1033,9 +1034,9 @@ void yaml_specid_algs(TCG_SPECID_ALG const *alg, size_t count) {
+                          "      algorithmId: %s\n"
+                          "      digestSize: %" PRIu16 "\n",
+                          i,
+-                         tpm2_alg_util_algtostr(alg->algorithmId,
++                         tpm2_alg_util_algtostr(le16toh(alg->algorithmId),
+                                                 tpm2_alg_util_flags_hash),
+-                         alg->digestSize);
++                         le16toh(alg->digestSize));
+     }
+ }
+ bool yaml_specid_vendor(TCG_VENDOR_INFO *vendor) {
+@@ -1062,11 +1063,11 @@ bool yaml_specid_event(TCG_EVENT const *event, size_t *count) {
+ 
+     TCG_SPECID_EVENT *specid = (TCG_SPECID_EVENT*)event->event;
+     TCG_SPECID_ALG *alg = (TCG_SPECID_ALG*)specid->digestSizes;
+-    TCG_VENDOR_INFO *vendor = (TCG_VENDOR_INFO*)(alg + specid->numberOfAlgorithms);
++    TCG_VENDOR_INFO *vendor = (TCG_VENDOR_INFO*)(alg + le32toh(specid->numberOfAlgorithms));
+ 
+     yaml_eventhdr(event, count);
+     yaml_specid(specid);
+-    yaml_specid_algs(alg, specid->numberOfAlgorithms);
++    yaml_specid_algs(alg, le32toh(specid->numberOfAlgorithms));
+     return yaml_specid_vendor(vendor);
+ }
+ bool yaml_specid_callback(TCG_EVENT const *event, void *data) {
+-- 
+2.51.0
+

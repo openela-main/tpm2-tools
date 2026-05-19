@@ -2,7 +2,7 @@
 
 Name:    tpm2-tools
 Version: 5.2
-Release: 6%{?candidate:.%{candidate}}%{?dist}
+Release: 7%{?candidate:.%{candidate}}%{?dist}
 Summary: A bunch of TPM testing toolS build upon tpm2-tss
 
 License: BSD
@@ -54,6 +54,10 @@ Patch305: 0005-Support-high-range-NV-indexes-in-getekcert.patch
 Patch306: 0006-tpm2_getrandom-Fix-force-parameter.patch
 Patch307: 0007-tpm2_eventlog_yaml.c-Fix-output-of-BlobDescription.patch
 Patch308: 0008-tpm2_encode-Fix-setting-emptyAuth-in-generated-pem-f.patch
+Patch401: 0001-Fix-issue-with-reading-NV-indexes.patch
+Patch402: 0001-tpm2_eventlog-Fix-parsing-on-big-endian-systems.patch
+Patch403: 0001-tpm2_quote-checkquote-Fix-usage-of-little-endian-ser.patch
+Patch404: add_pregenerated_doc_2.patch
 
 BuildRequires: git
 BuildRequires: make
@@ -86,6 +90,7 @@ autoreconf -i
 # initialization to zero is appropriate/safe.  So LTO is disabled for now.
 %define _lto_cflags %{nil}
 %configure --prefix=/usr --disable-static --disable-silent-rules CFLAGS="%{optflags} -Wno-error=deprecated-declarations"
+touch man/man1/*
 %make_build
 
 %install
@@ -105,6 +110,12 @@ autoreconf -i
 %{_mandir}/man1/tss2_*.1.gz
 
 %changelog
+* Thu Sep 18 2025 Štěpán Horáček <shoracek@redhat.com> - 5.2-7
+- Fix endianity issues.
+  Resolves: RHEL-79885
+  Resolves: RHEL-94933
+  Resolves: RHEL-113400
+
 * Wed Apr 24 2025 Štěpán Horáček <shoracek@redhat.com> - 5.2-6
 - Backport upstream fixes.
   Resolves: RHEL-72772

@@ -1,0 +1,519 @@
+From 9764e1cff9fd113154272dd2aa40700bd9b9956b Mon Sep 17 00:00:00 2001
+From: Juergen Repp <juergen_repp@web.de>
+Date: Wed, 30 Jul 2025 11:34:48 +0200
+Subject: [PATCH] tpm2_quote/checkquote: Fix usage of little endian
+ serialization.
+
+little endian is used for the pcr serialization (-F serialized) by
+tpm2_pcrread, tpm2_quote, and tpm2_checkpublic.
+After reading a pcr file the format was not adapted. Also on
+big endian platforms still the little endian values are used.
+To fix this problem new functions were added:
+pcr_print_pcr_struct_le, tpm2_openssl_hash_pcr_banks_le.
+But this functions are also used if the format value (-F value")
+is used. But on big endian platforms the usage of these
+_le functions will not work.
+Now these _le functions are removed and the little endian format of
+the input file is converted to host endian after the reading.
+Also a new serialization format is added (-F marshaled) where
+the tss2 marshaling unmarshaling functions are used.
+Addresses: #3447
+
+Signed-off-by: Juergen Repp <juergen_repp@web.de>
+---
+ lib/pcr.c                    | 134 +++++++++++++++++++++--------------
+ lib/pcr.h                    |  15 +---
+ lib/tpm2_convert.c           |   2 +
+ lib/tpm2_convert.h           |   1 +
+ lib/tpm2_openssl.h           |  18 -----
+ man/common/pcrs_format.md    |   5 +-
+ man/tpm2_checkquote.1.md     |   5 +-
+ tools/misc/tpm2_checkquote.c |  99 ++++++++++++++++++++++----
+ tools/tpm2_pcrread.c         |   4 ++
+ tools/tpm2_quote.c           |   3 +
+ 13 files changed, 216 insertions(+), 107 deletions(-)
+
+diff --git a/lib/pcr.c b/lib/pcr.c
+index b39750f0..e148b625 100644
+--- a/lib/pcr.c
++++ b/lib/pcr.c
+@@ -13,6 +13,8 @@
+ #include "tpm2_tool.h"
+ #include "tpm2_alg_util.h"
+ #include "tpm2_util.h"
++#include "tss2_common.h"
++#include "tss2_mu.h"
+ 
+ #define MAX(a,b) ((a>b)?a:b)
+ 
+@@ -185,58 +187,6 @@ static bool pcr_unset_pcr_sections(TPML_PCR_SELECTION *s) {
+     return true;
+ }
+ 
+-bool pcr_print_pcr_struct_le(TPML_PCR_SELECTION *pcr_select, tpm2_pcrs *pcrs) {
+-
+-    UINT32 vi = 0, di = 0, i;
+-    bool result = true;
+-
+-    tpm2_tool_output("pcrs:\n");
+-
+-    /* Loop through all PCR/hash banks */
+-    for (i = 0; i < le32toh(pcr_select->count); i++) {
+-        const char *alg_name = tpm2_alg_util_algtostr(
+-                le16toh(pcr_select->pcrSelections[i].hash), tpm2_alg_util_flags_hash);
+-
+-        tpm2_tool_output("  %s:\n", alg_name);
+-
+-        /* Loop through all PCRs in this bank */
+-        unsigned int pcr_id;
+-        for (pcr_id = 0; pcr_id < pcr_select->pcrSelections[i].sizeofSelect * 8u;
+-                pcr_id++) {
+-            if (!tpm2_util_is_pcr_select_bit_set(&pcr_select->pcrSelections[i],
+-                    pcr_id)) {
+-                continue; // skip non-selected banks
+-            }
+-            if (vi >= le64toh(pcrs->count) || di >= le32toh(pcrs->pcr_values[vi].count)) {
+-                LOG_ERR("Something wrong, trying to print but nothing more");
+-                return false;
+-            }
+-
+-            /* Print out PCR ID */
+-            tpm2_tool_output("    %-2d: 0x", pcr_id);
+-
+-            /* Print out current PCR digest value */
+-            TPM2B_DIGEST *b = &pcrs->pcr_values[vi].digests[di];
+-            int k;
+-            for (k = 0; k < le16toh(b->size); k++) {
+-                tpm2_tool_output("%02X", b->buffer[k]);
+-            }
+-            tpm2_tool_output("\n");
+-
+-            if (++di < le32toh(pcrs->pcr_values[vi].count)) {
+-                continue;
+-            }
+-
+-            di = 0;
+-            if (++vi < le64toh(pcrs->count)) {
+-                continue;
+-            }
+-        }
+-    }
+-
+-    return result;
+-}
+-
+ bool pcr_fwrite_serialized(const TPML_PCR_SELECTION *pcr_select,
+     const tpm2_pcrs *ppcrs, FILE *output_file) {
+ 
+@@ -282,6 +232,86 @@ bool pcr_fwrite_serialized(const TPML_PCR_SELECTION *pcr_select,
+     return true;
+ }
+ 
++bool pcr_fwrite_marshaled(const TPML_PCR_SELECTION *pcr_select,
++    const tpm2_pcrs *ppcrs, FILE *output_file) {
++    TSS2_RC rc;
++    size_t size;
++    uint8_t *buffer;
++    uint8_t num_buffer[sizeof(UINT32)];
++
++    size = 0;
++    rc = Tss2_MU_TPML_PCR_SELECTION_Marshal(pcr_select, NULL,
++                                            TPM2_MAX_COMMAND_SIZE, &size);
++    if (rc) {
++        return false;
++    }
++    buffer = malloc(size);
++    if (!buffer) {
++        return false;
++    }
++    size = 0;
++    rc = Tss2_MU_TPML_PCR_SELECTION_Marshal(pcr_select, buffer,
++                                            TPM2_MAX_COMMAND_SIZE, &size);
++    if (rc) {
++        free(buffer);
++        return false;
++    }
++
++    size_t fwrite_len = fwrite(buffer, size, 1,
++                               output_file);
++    if (fwrite_len != 1) {
++        LOG_ERR("write to output file failed: %s", strerror(errno));
++        free(buffer);
++        return false;
++    }
++    free(buffer);
++
++    // Marshal PCR digests to pcr outfile
++
++    UINT32 count = ppcrs->count;
++    size = 0;
++    rc = Tss2_MU_UINT32_Marshal(count, &num_buffer[0],
++                                sizeof(num_buffer), &size);
++    if (rc) {
++        return false;
++    }
++    fwrite_len = fwrite(&num_buffer[0], size, 1,
++                        output_file);
++    if (fwrite_len != 1) {
++        LOG_ERR("write to output file failed: %s", strerror(errno));
++        return false;
++    }
++
++    for (size_t j = 0; j < ppcrs->count; j++) {
++        size = 0;
++        rc = Tss2_MU_TPML_DIGEST_Marshal(&ppcrs->pcr_values[j], NULL,
++                                       TPM2_MAX_COMMAND_SIZE, &size);
++        if (rc) {
++            return false;
++        }
++        buffer = malloc(size);
++        if (!buffer) {
++            return false;
++        }
++        size = 0;
++        rc = Tss2_MU_TPML_DIGEST_Marshal(&ppcrs->pcr_values[j], buffer,
++                                       TPM2_MAX_COMMAND_SIZE, &size);
++         if (rc) {
++            free(buffer);
++            return false;
++        }
++        fwrite_len = fwrite(buffer, size, 1,
++                        output_file);
++        if (fwrite_len != 1) {
++            free(buffer);
++            LOG_ERR("write to output file failed: %s", strerror(errno));
++            return false;
++        }
++        free(buffer);
++    }
++    return true;
++}
++
+ bool pcr_fwrite_values(const TPML_PCR_SELECTION *pcr_select,
+     const tpm2_pcrs *pcrs, FILE *output_file) {
+ 
+diff --git a/lib/pcr.h b/lib/pcr.h
+index a782da3e..d69fc9c5 100644
+--- a/lib/pcr.h
++++ b/lib/pcr.h
+@@ -34,18 +34,6 @@ struct tpm2_pcrs {
+  */
+ bool pcr_print_pcr_struct(TPML_PCR_SELECTION *pcrSelect, tpm2_pcrs *pcrs);
+ 
+-/**
+- * Echo out all PCR banks according to g_pcrSelection & g_pcrs->.
+- * Assume that data structures are all little endian.
+- * @param pcrSelect
+- *  Description of which PCR registers are selected.
+- * @param pcrs
+- *  Struct containing PCR digests.
+- * @return
+- *  True on success, false otherwise.
+- */
+-bool pcr_print_pcr_struct_le(TPML_PCR_SELECTION *pcrSelect, tpm2_pcrs *pcrs);
+-
+ /**
+  * Set the PCR value into pcrId if string in arg is a valid PCR index.
+  * @param arg
+@@ -90,6 +78,9 @@ bool pcr_fwrite_values(const TPML_PCR_SELECTION *pcr_select,
+ bool pcr_fwrite_serialized(const TPML_PCR_SELECTION *pcr_select,
+     const tpm2_pcrs *pcrs, FILE *output_file);
+ 
++bool pcr_fwrite_marshaled(const TPML_PCR_SELECTION *pcr_select,
++    const tpm2_pcrs *ppcrs, FILE *output_file);
++
+ bool pcr_parse_selections(const char *arg, TPML_PCR_SELECTION *pcr_selections);
+ 
+ tool_rc pcr_get_banks(ESYS_CONTEXT *esys_context,
+diff --git a/lib/tpm2_convert.c b/lib/tpm2_convert.c
+index edb9bed0..22aa7b93 100644
+--- a/lib/tpm2_convert.c
++++ b/lib/tpm2_convert.c
+@@ -34,6 +34,8 @@ tpm2_convert_pcrs_output_fmt tpm2_convert_pcrs_output_fmt_from_optarg(
+         return pcrs_output_format_values;
+     } else if (strcasecmp(label, "serialized") == 0) {
+         return pcrs_output_format_serialized;
++    } else if (strcasecmp(label, "marshaled") == 0) {
++        return pcrs_output_format_marshaled;
+     }
+ 
+     LOG_ERR("Invalid pcrs output format '%s' specified", label);
+diff --git a/lib/tpm2_convert.h b/lib/tpm2_convert.h
+index 87848ee3..fab9d396 100644
+--- a/lib/tpm2_convert.h
++++ b/lib/tpm2_convert.h
+@@ -29,6 +29,7 @@ typedef enum tpm2_convert_pcrs_output_fmt tpm2_convert_pcrs_output_fmt;
+ enum tpm2_convert_pcrs_output_fmt {
+     pcrs_output_format_values,
+     pcrs_output_format_serialized,
++    pcrs_output_format_marshaled,
+     pcrs_output_format_err
+ };
+ 
+diff --git a/lib/tpm2_openssl.h b/lib/tpm2_openssl.h
+index 68dd54e3..62760e4e 100644
+--- a/lib/tpm2_openssl.h
++++ b/lib/tpm2_openssl.h
+@@ -96,24 +96,6 @@ bool tpm2_openssl_hash_pcr_values(TPMI_ALG_HASH halg, TPML_DIGEST *digests,
+ bool tpm2_openssl_hash_pcr_banks(TPMI_ALG_HASH hashAlg,
+         TPML_PCR_SELECTION *pcr_select, tpm2_pcrs *pcrs, TPM2B_DIGEST *digest);
+ 
+-/*
+- * Hash a list of PCR digests, supporting multiple banks.
+- * The data in TPML_PCR_SELECTION and tpm2_pcrs is in little endian format.
+- *
+- * @param halg
+- *  The hashing algorithm to use.
+- * @param pcr_select
+- *  The list that specifies which PCRs are selected.
+- * @param pcrs
+- *  The list of PCR banks, each containing a list of PCR digests to hash.
+- ^ * @param digest
+- ^ *  The result of hashing digests with halg.
+- * @return
+- *  true on success, false on error.
+- */
+-bool tpm2_openssl_hash_pcr_banks_le(TPMI_ALG_HASH hashAlg,
+-        TPML_PCR_SELECTION *pcr_select, tpm2_pcrs *pcrs, TPM2B_DIGEST *digest);
+-
+ /**
+  * Extend a PCR with a new digest.
+  * @param halg
+diff --git a/man/common/pcrs_format.md b/man/common/pcrs_format.md
+index 58f40705..d1caac4b 100644
+--- a/man/common/pcrs_format.md
++++ b/man/common/pcrs_format.md
+@@ -1,3 +1,6 @@
+   * **-F**, **\--pcrs_format**=_FORMAT_:
+ 
+-    Format selection for the binary blob in the PCR output file. 'values' will output a binary blob of the PCR values. 'serialized' will output a binary blob of the PCR values in the form of serialized data structure in little endian format. Optional.
++    Format selection for the binary blob in the PCR output file. 'values' will output a binary blob of the PCR values. 'serialized' will write or read a binary blob of the PCR values in the form of serialized data structure in little endian format.
++    'marshaled' will will read or write a binary blob in the binary format used by the TSS2 marshaling and unmarshaling functions. If marshaled is used the data is serialized in the following order: TPML_PCR_SELECTION, 
++    UINT32 (the number of following TPML_DIGEST elements) TPML_DIGEST [number of TPML_DIGEST elements].
++    Optional.
+diff --git a/tools/misc/tpm2_checkquote.c b/tools/misc/tpm2_checkquote.c
+index 5083d855..fb4d5868 100644
+--- a/tools/misc/tpm2_checkquote.c
++++ b/tools/misc/tpm2_checkquote.c
+@@ -1,5 +1,6 @@
+ /* SPDX-License-Identifier: BSD-3-Clause */
+ 
++#include <endian.h>
+ #include <inttypes.h>
+ #include <stdbool.h>
+ #include <stdio.h>
+@@ -19,6 +20,8 @@
+ #include "tpm2_systemdeps.h"
+ #include "tpm2_tool.h"
+ #include "tpm2_eventlog.h"
++#include "tss2_common.h"
++#include "tss2_mu.h"
+ 
+ typedef struct tpm2_verifysig_ctx tpm2_verifysig_ctx;
+ struct tpm2_verifysig_ctx {
+@@ -46,12 +49,14 @@ struct tpm2_verifysig_ctx {
+     char *eventlog_path;
+     tpm2_loaded_object key_context_object;
+     const char *pcr_selection_string;
++    tpm2_convert_pcrs_output_fmt pcrs_format;
+ };
+ 
+ static tpm2_verifysig_ctx ctx = {
+         .halg = TPM2_ALG_SHA256,
+         .msg_hash = TPM2B_TYPE_INIT(TPM2B_DIGEST, buffer),
+         .pcr_hash = TPM2B_TYPE_INIT(TPM2B_DIGEST, buffer),
++        .pcrs_format = pcrs_output_format_serialized,
+ };
+ 
+ static bool compare_pcr_selection(TPML_PCR_SELECTION *attest_sel, TPML_PCR_SELECTION *pcr_sel) {
+@@ -292,37 +297,97 @@ static bool parse_selection_data_from_selection_string(FILE *pcr_input,
+ 
+ static bool parse_selection_data_from_file(FILE *pcr_input,
+     TPML_PCR_SELECTION *pcr_select, tpm2_pcrs *pcrs) {
++    size_t j, i;
+ 
+     // Import TPML_PCR_SELECTION structure to pcr outfile
+     if (fread(pcr_select, sizeof(TPML_PCR_SELECTION), 1, pcr_input) != 1) {
+         LOG_ERR("Failed to read PCR selection from file");
+         return false;
+     }
+-
++    pcr_select->count = le32toh(pcr_select->count);
++    for (i = 0; i < pcr_select->count; i++) {
++        pcr_select->pcrSelections[i].hash = le16toh(pcr_select->pcrSelections[i].hash);
++    }
++ 
+     // Import PCR digests to pcr outfile
+     if (fread(&pcrs->count, sizeof(UINT32), 1, pcr_input) != 1) {
+         LOG_ERR("Failed to read PCR digests header from file");
+         return false;
+     }
+ 
+-    if (le64toh(pcrs->count) > ARRAY_LEN(pcrs->pcr_values)) {
++    pcrs->count = le64toh(pcrs->count);
++
++    if (pcrs->count > ARRAY_LEN(pcrs->pcr_values)) {
+         LOG_ERR("Malformed PCR file, pcr count cannot be greater than %zu, got: %" PRIu64 " ",
+                 ARRAY_LEN(pcrs->pcr_values), le64toh((UINT64)pcrs->count));
+         return false;
+     }
+ 
+-    size_t j;
+-    for (j = 0; j < le64toh(pcrs->count); j++) {
++     for (j = 0; j < pcrs->count; j++) {
+         if (fread(&pcrs->pcr_values[j], sizeof(TPML_DIGEST), 1, pcr_input)
+                 != 1) {
+             LOG_ERR("Failed to read PCR digest from file");
+             return false;
+         }
++        // Convert TPML_DIGEST from little endian to host endian.
++        pcrs->pcr_values[j].count = le32toh( pcrs->pcr_values[j].count);
++        for (i = 0; i < pcrs->pcr_values[j].count; i++) {
++            pcrs->pcr_values[j].digests[i].size =
++                le16toh(pcrs->pcr_values[j].digests[i].size);
++        }
+     }
+ 
+     return true;
+ }
+ 
++static bool parse_marshaled_selection_data(FILE *pcr_input,
++    TPML_PCR_SELECTION *pcr_select, tpm2_pcrs *pcrs,  unsigned long fsize) {
++    size_t i;
++    uint8_t *buffer = NULL;
++    UINT16 size = fsize;
++    size_t offset = 0;
++    TSS2_RC rc;
++    UINT32 count;
++
++    buffer = malloc(fsize);
++
++    if (!file_read_bytes_from_file(pcr_input, buffer, &size, ctx.pcr_file_path)) {
++        LOG_ERR("Failed to read PCR selection from file");
++        return false;
++    }
++
++    rc = Tss2_MU_TPML_PCR_SELECTION_Unmarshal(buffer, size, &offset, pcr_select);
++    if (rc) {
++        LOG_ERR("Failed unmarshal PCR selection.");
++        goto error;
++    }
++    rc = Tss2_MU_UINT32_Unmarshal(buffer, size, &offset, &count);
++    if (rc) {
++        LOG_ERR("Failed unmarshal number of PCR digest lists.");
++        goto error;
++    }
++    pcrs->count = count;
++    if (pcrs->count > ARRAY_LEN(pcrs->pcr_values)) {
++        LOG_ERR("Malformed PCR file, pcr count cannot be greater than %zu, got: %" PRIu64 " ",
++                ARRAY_LEN(pcrs->pcr_values), le64toh((UINT64)pcrs->count));
++        return false;
++    }
++
++     for (i = 0; i < pcrs->count; i++) {
++         rc = Tss2_MU_TPML_DIGEST_Unmarshal(buffer, size, &offset,
++                                                   &pcrs->pcr_values[i]);
++         if (rc) {
++             LOG_ERR("Failed unmarshal PCR digest list.");
++             goto error;
++         }
++     }
++     return true;
++
++ error:
++     free(buffer);
++     return false;
++}
++
+ static bool pcrs_from_file(const char *pcr_file_path,
+         TPML_PCR_SELECTION *pcr_select, tpm2_pcrs *pcrs) {
+ 
+@@ -346,9 +411,16 @@ static bool pcrs_from_file(const char *pcr_file_path,
+     }
+ 
+     if (!ctx.pcr_selection_string) {
+-        result = parse_selection_data_from_file(pcr_input, pcr_select, pcrs);
+-        if (!result) {
++        if (ctx.pcrs_format == pcrs_output_format_marshaled) {
++            result = parse_marshaled_selection_data(pcr_input, pcr_select, pcrs, size);
++            if (!result) {
+             goto out;
++            }
++        } else {
++            result = parse_selection_data_from_file(pcr_input, pcr_select, pcrs);
++            if (!result) {
++                goto out;
++            }
+         }
+     } else {
+         result = parse_selection_data_from_selection_string(pcr_input,
+@@ -471,20 +543,20 @@ static tool_rc init(void) {
+             goto err;
+         }
+ 
+-        if (le32toh(pcr_select.count) > TPM2_NUM_PCR_BANKS)
++        if (pcr_select.count > TPM2_NUM_PCR_BANKS)
+             goto err;
+ 
+         UINT32 i;
+-        for (i = 0; i < le32toh(pcr_select.count); i++)
+-            if (le16toh(pcr_select.pcrSelections[i].hash) == TPM2_ALG_ERROR)
++        for (i = 0; i < pcr_select.count; i++)
++            if (pcr_select.pcrSelections[i].hash == TPM2_ALG_ERROR)
+             goto err;
+ 
+-        if (!tpm2_openssl_hash_pcr_banks_le(ctx.halg, &pcr_select, pcrs,
++        if (!tpm2_openssl_hash_pcr_banks(ctx.halg, &pcr_select, pcrs,
+                 &ctx.pcr_hash)) {
+             LOG_ERR("Failed to hash PCR values related to quote!");
+             goto err;
+         }
+-        if (!pcr_print_pcr_struct_le(&pcr_select, pcrs)) {
++        if (!pcr_print_pcr_struct(&pcr_select, pcrs)) {
+             LOG_ERR("Failed to print PCR values related to quote!");
+             goto err;
+         }
+@@ -620,7 +692,10 @@ static bool on_option(char key, char *value) {
+     }
+         break;
+     case 'F':
+-        LOG_WARN("DEPRECATED: Format ignored");
++        ctx.pcrs_format = tpm2_convert_pcrs_output_fmt_from_optarg(value);
++        if (ctx.pcrs_format == pcrs_output_format_err) {
++            return false;
++        }
+         break;
+     case 'q':
+         ctx.extra_data.size = sizeof(ctx.extra_data.buffer);
+diff --git a/tools/tpm2_pcrread.c b/tools/tpm2_pcrread.c
+index d070b2f3..675ce69e 100644
+--- a/tools/tpm2_pcrread.c
++++ b/tools/tpm2_pcrread.c
+@@ -48,6 +48,10 @@ static tool_rc show_pcr_list_selected_values(ESYS_CONTEXT *esys_context,
+             success = pcr_fwrite_serialized(&ctx.pcr_selections, &ctx.pcrs,
+                                             ctx.output_file);
+         }
++        if (ctx.format == pcrs_output_format_marshaled) {
++            success = pcr_fwrite_marshaled(&ctx.pcr_selections, &ctx.pcrs,
++                ctx.output_file);
++        }
+     }
+ 
+     return success ? tool_rc_success : tool_rc_general_error;
+diff --git a/tools/tpm2_quote.c b/tools/tpm2_quote.c
+index ceb63e54..3712bd3c 100644
+--- a/tools/tpm2_quote.c
++++ b/tools/tpm2_quote.c
+@@ -64,6 +64,9 @@ static bool write_output_files(TPM2B_ATTEST *quoted, TPMT_SIGNATURE *signature)
+         } else if (ctx.pcrs_format == pcrs_output_format_values) {
+             res &= pcr_fwrite_values(&ctx.pcr_selections, &ctx.pcrs,
+                                      ctx.pcr_output);
++        } else if (ctx.pcrs_format == pcrs_output_format_marshaled) {
++            res &= pcr_fwrite_marshaled(&ctx.pcr_selections, &ctx.pcrs,
++               ctx.pcr_output);
+         }
+     }
+ 
+-- 
+2.51.0
+

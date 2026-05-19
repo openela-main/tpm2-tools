@@ -1,0 +1,64 @@
+From 8aed90958bb4d0d8d84a5334cce08a38314bffca Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C5=A0t=C4=9Bp=C3=A1n=20Hor=C3=A1=C4=8Dek?=
+ <shoracek@redhat.com>
+Date: Tue, 26 Mar 2024 13:37:11 +0100
+Subject: [PATCH] Fix issue with reading NV indexes
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Wrong arguments are used in tpm2_getekcertificate and tpm2_nvdefine when
+accessing the list of NV indexes in use. This works fine on
+little-endian systems, but on big-endian systems this will not find any
+NV indexes, causing issues when using these functions without an
+argument. Also, use the same argument in tpm2_nvreadpublic.
+
+Signed-off-by: Štěpán Horáček <shoracek@redhat.com>
+---
+ tools/tpm2_getekcertificate.c | 2 +-
+ tools/tpm2_nvdefine.c         | 2 +-
+ tools/tpm2_nvreadpublic.c     | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/tools/tpm2_getekcertificate.c b/tools/tpm2_getekcertificate.c
+index 3c9bddeb..b8fa5647 100644
+--- a/tools/tpm2_getekcertificate.c
++++ b/tools/tpm2_getekcertificate.c
+@@ -478,7 +478,7 @@ tool_rc get_tpm_properties(ESYS_CONTEXT *ectx) {
+ 
+     free(capability_data);
+     rc = tpm2_getcap(ectx, TPM2_CAP_HANDLES,
+-        tpm2_util_hton_32(TPM2_HT_NV_INDEX), TPM2_PT_NV_INDEX_MAX, NULL,
++        TPM2_NV_INDEX_FIRST, TPM2_PT_NV_INDEX_MAX, NULL,
+         &capability_data);
+     if (rc != tool_rc_success) {
+         LOG_ERR("Failed to read capability data for NV indices.");
+diff --git a/tools/tpm2_nvdefine.c b/tools/tpm2_nvdefine.c
+index 4462503a..7f193e83 100644
+--- a/tools/tpm2_nvdefine.c
++++ b/tools/tpm2_nvdefine.c
+@@ -184,7 +184,7 @@ static tool_rc handle_no_index_specified(ESYS_CONTEXT *ectx, TPM2_NV_INDEX *chos
+     capabilities = NULL;
+ 
+     /* now find what NV indexes are in use */
+-    rc = tpm2_getcap(ectx, TPM2_CAP_HANDLES, tpm2_util_hton_32(TPM2_HT_NV_INDEX),
++    rc = tpm2_getcap(ectx, TPM2_CAP_HANDLES, TPM2_NV_INDEX_FIRST,
+             TPM2_PT_NV_INDEX_MAX, NULL, &capabilities);
+     if (rc != tool_rc_success) {
+         goto out;
+diff --git a/tools/tpm2_nvreadpublic.c b/tools/tpm2_nvreadpublic.c
+index 1f26b24e..060f521e 100644
+--- a/tools/tpm2_nvreadpublic.c
++++ b/tools/tpm2_nvreadpublic.c
+@@ -85,7 +85,7 @@ static tool_rc nv_readpublic(ESYS_CONTEXT *context) {
+ 
+     TPMS_CAPABILITY_DATA *capability_data = NULL;
+     if (ctx.nv_index == 0) {
+-        tool_rc rc = tpm2_getcap(context, TPM2_CAP_HANDLES, TPM2_HT_NV_INDEX << 24,
++        tool_rc rc = tpm2_getcap(context, TPM2_CAP_HANDLES, TPM2_NV_INDEX_FIRST,
+                 TPM2_PT_NV_INDEX_MAX, NULL, &capability_data);
+         if (rc != tool_rc_success) {
+             return rc;
+-- 
+2.51.0
+
